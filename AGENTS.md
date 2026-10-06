@@ -16,6 +16,7 @@ The project is based on `aaaeka/browser-screen-time`.
 - Keep the MVP local-first. Do not introduce a backend.
 - Treat `docs/reference/dashboard.png` as the approved dashboard design reference.
 - Do not invent Hyprland integration before the Firefox/Hyprland behavior has been researched and verified.
+- For any tracking-related task, read `docs/TRACKING.md` before planning or modifying code.
 
 ## Workflow
 
