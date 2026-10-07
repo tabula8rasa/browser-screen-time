@@ -51,6 +51,8 @@ Key rules:
 - Media in background tabs must never enable tracking.
 - Media is defined as HTML `<video>` + HTML `<audio>`.
 - Web Audio API is not supported in the MVP.
+- For the idle-media exception, an element must actually be playing, have `muted === false`, and have `volume > 0`. Muted or zero-volume playback does not qualify.
+- The stored `videoCheck` key remains the opt-out for this exception for both video and audio.
 
 Final truth table:
 
@@ -947,10 +949,9 @@ Web Audio API – outside MVP scope
 multiple Firefox windows
 multiple monitors
 buffering policy
-muted autoplay policy
 ```
 
-`muted autoplay` requires a separate product decision. Decorative autoplay video must not silently become a reason to continue tracking when `idle=true`.
+`muted autoplay` policy is resolved: muted and zero-volume elements never enable tracking when `idle=true`. Qualifying HTML media must be playing, unmuted, and have positive volume; no Web Audio or decorative-media classifier is added.
 
 ---
 
@@ -989,3 +990,63 @@ per-tab HTML media state
 ```
 
 There is no need to build a new tracker from scratch. The tracking-eligibility layer in the existing Browser Screen Time implementation should be replaced while preserving the rest of the working tracking mechanics.
+
+
+## Firefox compatibility and recovery
+
+Minimum Firefox: **153.0**, enforced by `strict_min_version`. This is required by
+sender-authoritative `runtime.MessageSender.documentId`; no legacy document-ID
+fallback is implemented. Audit of the tracking implementation against MDN browser
+compatibility data (2026-10-07):
+
+| API / feature actually used | Firefox support |
+|---|---|
+| `runtime.MessageSender.documentId` | 153 |
+| `MessageSender.tab`, `frameId`, `runtime.Port` sender/message/disconnect operations, `connect`, `onConnect`, `onMessage`, `sendMessage`, `getURL`, `id` | 45 |
+| `runtime.getBrowserInfo` | 51 |
+| `tabs.query` with active/windowId; Tab id/windowId/active/url; `sendMessage` with frameId; onActivated/onUpdated/onRemoved/onAttached/onDetached | 45 |
+| `tabs.onReplaced` | Unsupported in Firefox; optional subscription only, not required for Firefox tracking |
+| `windows.getAll`, Window.focused, onFocusChanged/onRemoved, WINDOW_ID_NONE | 45 |
+| `idle.queryState` | 45; actual idle reporting from 51 |
+| `idle.setDetectionInterval`, onStateChanged | 51 |
+| `action.setIcon`, Manifest V3 | 109 |
+| `storage.local` get/set/remove | 45; content-script access from 48 |
+| `notifications.create` basic title/message/iconUrl | 45 |
+| content_scripts all_frames/run_at | 48 |
+| content_scripts match_about_blank | 52 |
+
+Sources: MDN compatibility data for [runtime](https://github.com/mdn/browser-compat-data/blob/main/webextensions/api/runtime.json),
+[tabs](https://github.com/mdn/browser-compat-data/blob/main/webextensions/api/tabs.json),
+[windows](https://github.com/mdn/browser-compat-data/blob/main/webextensions/api/windows.json),
+[idle](https://github.com/mdn/browser-compat-data/blob/main/webextensions/api/idle.json),
+[action](https://github.com/mdn/browser-compat-data/blob/main/webextensions/api/action.json),
+[storage](https://github.com/mdn/browser-compat-data/blob/main/webextensions/api/storage.json),
+[notifications](https://github.com/mdn/browser-compat-data/blob/main/webextensions/api/notifications.json),
+and [content_scripts](https://github.com/mdn/browser-compat-data/blob/main/webextensions/manifest/content_scripts.json).
+No used mandatory WebExtension API has a higher minimum than 153.
+
+A rejected activation/focus tab lookup leaves attribution unknown and STOP. The
+existing one-second accounting cadence retries a failed current-generation lookup
+without crediting the recovery tick; pending work is single-flight for its current
+generation, and newer focus/tab events invalidate older results.
+
+A failed document handshake is revalidated at most three times, after 1/2/4 seconds.
+Each retry belongs to the frame's live eligible unaccepted candidates and remains
+bound to lifecycle/frame validation generations. A stale candidate disconnect
+cannot cancel recovery while another eligible candidate remains. New validation
+and navigation cancel obsolete work; disconnect cancels a frame timer only when
+no eligible unaccepted candidate remains. Retry exhaustion leaves the document ineligible; no heartbeat or arbitrary
+media inactivity timeout is used.
+
+Media scanning includes recursively nested **open shadow roots**. Mutation observers
+observe each discovered root; a one-second DOM discovery scan also detects roots
+attached later to existing hosts, which isolated content-script MutationObservers
+cannot discover directly. Discovery can therefore lag up to one second in that
+case. Element identity and established playback survive moves within the same
+reachable document. Document hide, settings disable, and removed hosts clear the
+relevant listeners/observers; BFCache restore rescans. **Closed shadow roots are out
+of scope** because their internals cannot be inspected reliably by the content script.
+Discovery scans do not expire playback state or change the idle/media rule.
+
+CounterStorage.set awaits the underlying write; the existing 15-second save loop
+catches failures. Save cadence, gate, schema, and +1-second accounting are unchanged.

@@ -1,100 +1,198 @@
-import browser from 'webextension-polyfill'
-import SettingsStorage from './settingsStorage'
-import { PlayingMediaChangeEvent, SettingsData } from './types'
+import browser, { Runtime } from 'webextension-polyfill';
+import SettingsStorage from './settingsStorage';
+import { MEDIA_PORT, MediaBackgroundMessage, MediaElementState, MediaMessage } from './types';
 
-interface VideoElementWithEvents {
-    elem: Element,
-    play: EventListenerOrEventListenerObject,
-    pause: EventListenerOrEventListenerObject,
-    emptied: EventListenerOrEventListenerObject,
-    unload: EventListenerOrEventListenerObject
+interface ObservedMedia {
+    elementId: string;
+    playing: boolean;
+    listeners: Map<string, EventListener>;
 }
 
-let videoElements: Array<VideoElementWithEvents> = [];
+const elements = new Map<HTMLMediaElement, ObservedMedia>();
+let nextElementId = 0;
+let enabled = false;
+let settingsGeneration = 0;
+let live = true;
+let port: Runtime.Port | null = null;
+let accepted = false;
+let token: string | null = null;
 
-function createEvents(): void {
-    const videoElems = document.querySelectorAll('video:not(.bws-found)');
-    for (const elem of videoElems) {
-        elem.classList.add('bws-found');
-        const changeEvent = {
-            type: 'playingMedia',
-            playingMedia: {
-                videoSource: elem.getAttribute('src'),
-                url: location.hostname,
-                state: null
-            }
-        };
+function facts(element: HTMLMediaElement, tracked: ObservedMedia): MediaElementState {
+    return {
+        elementId: tracked.elementId,
+        playing: tracked.playing && !element.paused && !element.ended && !element.error,
+        muted: element.muted,
+        volume: element.volume
+    };
+}
 
-        const onPlay = () => {
-            changeEvent.playingMedia.state = 'playing';
-            browser.runtime.sendMessage(changeEvent);
-        };
-        const onPause = () => {
-            changeEvent.playingMedia.state = 'paused';
-            browser.runtime.sendMessage(changeEvent);
-        };
-        const onEmptied = () => {
-            changeEvent.playingMedia.state = 'paused';
-            browser.runtime.sendMessage(changeEvent);
-        };
-        const onUnload = () => {
-            changeEvent.playingMedia.state = 'paused';
-            browser.runtime.sendMessage(changeEvent);
-        };
+function send(message: MediaMessage): void {
+    if (!port || !accepted) return;
+    try { port.postMessage(message); } catch { /* A disappearing document will disconnect its port. */ }
+}
 
-        let videoElementWithListeners: VideoElementWithEvents = {
-            elem: elem,
-            play: onPlay,
-            pause: onPause,
-            emptied: onEmptied,
-            unload: onUnload
+function snapshot(): void {
+    send({ type: 'media:snapshot', elements: Array.from(elements, ([element, tracked]) => facts(element, tracked)) });
+}
+
+function observeElement(element: HTMLMediaElement): void {
+    if (elements.has(element)) return;
+    const tracked: ObservedMedia = {
+        elementId: String(++nextElementId),
+        // A scan can find playback which started before document_idle. Do not
+        // infer playback from an unbuffered play request; playing establishes it.
+        playing: !element.paused && !element.ended && !element.error &&
+            element.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA,
+        listeners: new Map()
+    };
+    elements.set(element, tracked);
+    for (const event of ['playing', 'pause', 'ended', 'emptied', 'error', 'volumechange']) {
+        const listener: EventListener = () => {
+            if (event === 'playing') tracked.playing = true;
+            else if (event !== 'volumechange') tracked.playing = false;
+            send({ type: 'media:element', element: facts(element, tracked) });
         };
-
-        elem.addEventListener('play', videoElementWithListeners.play);
-        elem.addEventListener('pause', videoElementWithListeners.pause);
-        elem.addEventListener('emptied', videoElementWithListeners.emptied);
-        window.addEventListener('unload', videoElementWithListeners.unload);
-
-        videoElements.push(videoElementWithListeners);
+        tracked.listeners.set(event, listener);
+        element.addEventListener(event, listener);
     }
+    send({ type: 'media:element', element: facts(element, tracked) });
 }
 
-function removeEvents(): void {
-    for (const item of videoElements) {
-        if (!item.elem) {
-            continue;
+// MutationObserver cannot see attachShadow() on an existing host in the
+// page's isolated JS world. A 1s discovery scan supplements root-local observers.
+// This timer discovers DOM roots only; it never expires media playback state.
+const rootObservers = new Map<Document | ShadowRoot, MutationObserver>();
+let rootDiscovery: ReturnType<typeof setInterval> | null = null;
+
+function reachable(node: Node): boolean {
+    if (!node.isConnected || node.ownerDocument !== document) return false;
+    let root = node.getRootNode();
+    while (root instanceof ShadowRoot) {
+        if (root.host.shadowRoot !== root) return false; // Closed roots are out of scope.
+        root = root.host.getRootNode();
+    }
+    return root === document;
+}
+
+function scan(root: Document | ShadowRoot): void {
+    if (!rootObservers.has(root)) {
+        const observer = new MutationObserver(reconcileDOM);
+        observer.observe(root, { childList: true, subtree: true });
+        rootObservers.set(root, observer);
+    }
+    root.querySelectorAll('*').forEach(element => {
+        if (element instanceof HTMLMediaElement) observeElement(element);
+        if (element.shadowRoot) scan(element.shadowRoot);
+    });
+}
+
+function removeElement(element: HTMLMediaElement): void {
+    const tracked = elements.get(element);
+    if (!tracked) return;
+    tracked.listeners.forEach((listener, event) => element.removeEventListener(event, listener));
+    elements.delete(element);
+    send({ type: 'media:removed', elementId: tracked.elementId });
+}
+
+function reconcileDOM(): void {
+    if (!live || !enabled) return;
+    scan(document);
+    // Inspect the final composed DOM. Moving between light/open shadow trees
+    // retains element identity and established playback, including buffering.
+    for (const element of elements.keys()) {
+        if (!reachable(element)) removeElement(element);
+    }
+    for (const [root, observer] of rootObservers) {
+        if (root instanceof ShadowRoot && !reachable(root.host)) {
+            observer.disconnect();
+            rootObservers.delete(root);
         }
-
-        item.elem.classList.remove('bws-found');
-
-        item.elem.removeEventListener('play', item.play);
-        item.elem.removeEventListener('pause', item.pause);
-        item.elem.removeEventListener('emptied', item.emptied);
-        window.removeEventListener('unload', item.unload);
     }
-    videoElements = [];
 }
 
-const observer = new MutationObserver(createEvents);
+function startObserving(): void {
+    reconcileDOM();
+    if (rootDiscovery === null) rootDiscovery = setInterval(reconcileDOM, 1000);
+}
 
-SettingsStorage.onChangeOrLoad((settings: SettingsData) => {
-    if (settings.videoCheck) {
-        observer.observe(document.body, {
-            subtree: true,
-            childList: true
+function clearElements(): void {
+    if (rootDiscovery !== null) clearInterval(rootDiscovery);
+    rootDiscovery = null;
+    rootObservers.forEach(observer => observer.disconnect());
+    rootObservers.clear();
+    for (const element of elements.keys()) removeElement(element);
+}
+
+function applySettings(next: boolean): void {
+    if (enabled === next) return;
+    enabled = next;
+    if (live && enabled) {
+        startObserving();
+    } else clearElements();
+    snapshot();
+}
+
+function connect(): void {
+    if (!live || port) return;
+    try {
+        const connection = browser.runtime.connect({ name: MEDIA_PORT });
+        port = connection;
+        token = Array.from(crypto.getRandomValues(new Uint32Array(4)), value => value.toString(16)).join('-');
+        accepted = false;
+        connection.onMessage.addListener((message: MediaBackgroundMessage) => {
+            if (port !== connection) return;
+            if (message?.type === 'media:settings' && typeof message.enabled === 'boolean') {
+                settingsGeneration++;
+                applySettings(message.enabled);
+            } else if (message?.type === 'media:accepted') {
+                accepted = true;
+                snapshot();
+            }
         });
-    } else {
-        observer.disconnect();
-        removeEvents();
-
-        const changeEvent: PlayingMediaChangeEvent = {
-            type: 'playingMedia',
-            playingMedia: {
-                videoSource: null,
-                url: null,
-                state: 'stopAll'
-            }
-        }
-        browser.runtime.sendMessage(changeEvent);
+        connection.onDisconnect.addListener(() => {
+            if (port !== connection) return;
+            port = null;
+            token = null;
+            accepted = false;
+            // Reconnect after a background restart. No periodic heartbeat or
+            // silence timeout is used; pagehide prevents reconnecting old pages.
+            if (live) queueMicrotask(connect);
+        });
+        connection.postMessage({ type: 'media:hello', token } satisfies MediaMessage);
+    } catch {
+        port = null;
+        token = null;
+        accepted = false;
     }
+}
+
+// This token only proves which connection belongs to the current frame. It is
+// never used as a tab/frame/document ID; those always come from Firefox sender.
+browser.runtime.onMessage.addListener((message: { type?: string }) => {
+    if (message?.type === 'media:current-document' && live && token) return Promise.resolve({ token });
 });
+
+window.addEventListener('pagehide', () => {
+    live = false;
+    clearElements();
+    const connection = port;
+    port = null;
+    token = null;
+    accepted = false;
+    connection?.disconnect();
+});
+
+window.addEventListener('pageshow', () => {
+    if (live) return;
+    live = true;
+    if (enabled) {
+        startObserving();
+    }
+    connect();
+});
+
+const initialSettingsGeneration = settingsGeneration;
+void SettingsStorage.get().then(settings => {
+    if (initialSettingsGeneration === settingsGeneration) applySettings(settings.videoCheck === true);
+}).catch(error => console.warn('Media settings initialization failed', error));
+connect();

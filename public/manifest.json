@@ -6,7 +6,7 @@
     "browser_specific_settings": {
         "gecko": {
             "id": "{68e1a6af-c5f7-4cb2-ad46-170e1a2acd01}",
-            "strict_min_version": "109.0"
+            "strict_min_version": "153.0"
         }
     },
     "background": {
@@ -29,7 +29,8 @@
         "matches": [ "*://*/*" ],
         "js": [ "videoCheck.js" ],
         "run_at": "document_idle",
-        "all_frames": true
+        "all_frames": true,
+        "match_about_blank": true
     }],
     "icons": {
         "16": "assets/icons/16px.png",

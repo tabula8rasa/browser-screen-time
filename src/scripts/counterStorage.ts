@@ -6,7 +6,7 @@ import { isEqual, addDays, isAfter } from 'date-fns'
 
 export default class CounterStorage {
     static async set(counter: Counter) {
-        browser.storage.local.set({ [Utils.getTodaysDate()]: counter });
+        await browser.storage.local.set({ [Utils.getTodaysDate()]: counter });
     }
 
     static async getSingleDay(date: Date): Promise<Counter> {

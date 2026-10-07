@@ -1,62 +1,51 @@
-import browser, { Idle } from 'webextension-polyfill'
-import SettingsStorage from './settingsStorage'
-import { MsgEvent, PlayingMedia, PlayingMediaChangeEvent, SettingsData } from './types'
+import browser, { Idle } from 'webextension-polyfill';
+import SettingsStorage from './settingsStorage';
+import { SettingsData } from './types';
 
 export default class Awake {
-    idle: boolean
-    mediaPlaying: boolean
-    windowUnfocused: boolean
+    idle = true;
+    initialized = false;
+    private idleGeneration = 0;
+    private settingsGeneration = 0;
+    private queryGeneration = 0;
+    private detectionInterval: number | null = null;
 
-    constructor() {
-        this.idle = false;
-        this.mediaPlaying = false;
-        this.windowUnfocused = false;
-
-        // Set up settings
-        SettingsStorage.onChangeOrLoad((settings: SettingsData) => {
-            browser.idle.setDetectionInterval(parseInt(settings.idleTimer as string));
-        });
-
-        // Create events
+    constructor(private onChange: () => void) {
         browser.idle.onStateChanged.addListener((state: Idle.IdleState) => {
-            this.idle = state === 'locked' || state === 'idle';
+            this.idleGeneration++;
+            this.setState(state);
         });
-
-        // Keep track of how many different media sources are playing
-        let currentlyPlaying: Array<PlayingMedia> = [];
-        browser.runtime.onMessage.addListener((message: MsgEvent) => {
-            if (message.type !== 'playingMedia') {
-                return;
-            }
-            const media = (message as PlayingMediaChangeEvent).playingMedia;
-
-            switch (media.state) {
-                case 'playing':
-                    currentlyPlaying.push(media);
-                    break;
-                case 'paused':
-                    // Remove the media if it matches
-                    const sameMediaCheck = (item: PlayingMedia) => !(item.videoSource === media.videoSource && item.url === media.url);
-                    currentlyPlaying = currentlyPlaying.filter(sameMediaCheck);
-                    break;
-                case 'stopAll':
-                    // Remove all media
-                    currentlyPlaying = [];
-                    break;
-            }
-
-            this.mediaPlaying = currentlyPlaying.length !== 0;
+        SettingsStorage.onChange((settings: SettingsData) => {
+            this.settingsGeneration++;
+            void this.configure(settings);
         });
-
-        browser.windows.onFocusChanged.addListener(async () => {
-            let window = await browser.windows.getCurrent();
-            this.windowUnfocused = !window.focused;
-        });
+        const generation = this.settingsGeneration;
+        void SettingsStorage.get().then(settings => {
+            if (generation === this.settingsGeneration) return this.configure(settings);
+        }).catch(error => console.warn('Idle initialization failed', error));
     }
 
-    public available(): boolean {
-        // Always true if media playing
-        // If idle or unfocused - false
-        return this.mediaPlaying || !(this.idle || this.windowUnfocused);
+    private setState(state: Idle.IdleState): void {
+        this.idle = state === 'idle' || state === 'locked';
+        this.initialized = true;
+        this.onChange();
+    }
+
+    private async configure(settings: SettingsData): Promise<void> {
+        const seconds = parseInt(settings.idleTimer as string);
+        if (!Number.isFinite(seconds) || seconds <= 0) return;
+        if (seconds === this.detectionInterval) return;
+        this.detectionInterval = seconds;
+        browser.idle.setDetectionInterval(seconds);
+        const queryGeneration = ++this.queryGeneration;
+        const idleGeneration = this.idleGeneration;
+        try {
+            const state = await browser.idle.queryState(seconds);
+            if (idleGeneration === this.idleGeneration && queryGeneration === this.queryGeneration) {
+                this.setState(state);
+            }
+        } catch (error) {
+            console.warn('Idle query failed', error);
+        }
     }
 }

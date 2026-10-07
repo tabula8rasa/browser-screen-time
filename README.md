@@ -18,6 +18,10 @@ Browser screen time is an extension which helps you track of the amount of time 
 ## Building the extension
 Run ```npm install``` to install dependencies, then ```npm run dev``` to build, or ```npm run watch``` to build and then watch for changes.
 
+Tracking requires **Firefox 153 or later**: current-document media ownership uses
+Firefox's `runtime.MessageSender.documentId`. The full API audit and open/closed
+shadow DOM support boundary are documented in [docs/TRACKING.md](docs/TRACKING.md).
+
 ### Local Firefox development
 
 On Linux, install dependencies with `npm ci` (Node.js 22.13+ or 24+), then run:

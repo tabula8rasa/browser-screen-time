@@ -24,15 +24,38 @@ export interface MsgEvent {
     type: string
 }
 
-export interface PlayingMedia {
-    videoSource: string,
-    url: string,
-    state: 'playing' | 'paused' | 'stopAll'
+// Content reports facts only. Tab/frame/document identity comes from Firefox.
+export const MEDIA_PORT = 'browser-screen-time:media';
+export interface MediaElementState {
+    elementId: string;
+    playing: boolean;
+    muted: boolean;
+    volume: number;
 }
-
-export interface PlayingMediaChangeEvent extends MsgEvent {
-    type: 'playingMedia',
-    playingMedia: PlayingMedia
+export type MediaMessage =
+    | { type: 'media:hello'; token: string }
+    | { type: 'media:snapshot'; elements: MediaElementState[] }
+    | { type: 'media:element'; element: MediaElementState }
+    | { type: 'media:removed'; elementId: string };
+export type MediaBackgroundMessage =
+    | { type: 'media:accepted' }
+    | { type: 'media:settings'; enabled: boolean };
+export interface MediaDocumentIdentity {
+    tabId: number;
+    frameId: number;
+    documentId: string;
+}
+export interface ActiveTrackingTab {
+    id: number;
+    windowId: number;
+    url: string;
+}
+export interface TrackingState {
+    focusedWindowId: number | null;
+    activeTab: ActiveTrackingTab | null;
+    idle: boolean;
+    idleInitialized: boolean;
+    mediaEnabled: boolean;
 }
 
 export type SettingsDataType = boolean | string;
