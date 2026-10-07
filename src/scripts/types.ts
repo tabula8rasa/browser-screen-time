@@ -73,3 +73,11 @@ export interface CounterOverwriteEvent extends MsgEvent {
     type: 'counter',
     counter: CounterDailyData | null
 }
+
+// Cross-context daily-data replacement; background owns storage and memory commit.
+export interface CounterReplacementRequest {
+    type: 'counter:replace';
+    mode: 'overwrite' | 'merge';
+    data: unknown;
+}
+export type CounterReplacementResponse = { ok: true } | { ok: false; error: string };

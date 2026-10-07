@@ -12,9 +12,12 @@ function day(websiteTime: Record<string, number>): CounterDailyData {
 beforeEach(async () => {
     vi.resetModules(); vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 9, 7, 12));
     mock = createBrowserMock(); mock.data.settings = { ...settings };
-    mock.browser.runtime.sendMessage = vi.fn(async (message: any) => { mock.browser.runtime.onMessage.emit(message); });
+    mock.browser.runtime.sendMessage = vi.fn(async (message: any) => { return mock.browser.runtime.onMessage.emit(message).find(result => result !== undefined); });
     vi.doMock('webextension-polyfill', () => ({ default: mock.browser }));
     storage = (await import('../src/scripts/counterStorage')).default;
+    // Unit tests exercise the storage phase through the real request/reply API.
+    // Background locking/pending writes are covered by replacementPersistence.
+    storage.onReplacement(async request => { await storage.replaceInBackground(request); });
 });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
@@ -31,7 +34,7 @@ describe('daily data import merge', () => {
             '2026 10 6': day({ 'past.example': 30 }), '2026 10 5': day({ 'new-day.example': 9 }),
             '2026 9 7': day({ 'boundary.example': 15 }), '2026 9 6': day({ 'outside.example': 777 }) });
         expect(imported).toEqual(beforeImport);
-        expect(mock.browser.runtime.sendMessage).toHaveBeenCalledWith({ type: 'counter', counter: mock.data[today] });
+        expect(mock.browser.runtime.sendMessage).toHaveBeenCalledWith({ type: 'counter:replace', mode: 'merge', data: imported });
         expect(JSON.parse(await storage.getAllJSONString())).toEqual(Object.fromEntries(Object.entries(mock.data).filter(([key]) => key !== 'settings')));
     });
 
@@ -53,7 +56,7 @@ describe('daily data import merge', () => {
         const before = structuredClone(mock.data);
         await storage.mergeStorage({});
         expect(mock.data).toEqual(before);
-        expect(mock.browser.runtime.sendMessage).toHaveBeenCalledWith({ type: 'counter', counter: before[today] });
+        expect(mock.browser.runtime.sendMessage).toHaveBeenCalledWith({ type: 'counter:replace', mode: 'merge', data: {} });
     });
 
     it('supports import into empty history and preserves zero-valued domains', async () => {
@@ -65,7 +68,7 @@ describe('daily data import merge', () => {
     it('historical-only import preserves the running current day', async () => {
         mock.data[today] = day({ current: 10 });
         await storage.mergeStorage({ '2026 10 6': day({ historical: 5 }) });
-        expect(mock.browser.runtime.sendMessage).toHaveBeenCalledWith({ type: 'counter', counter: day({ current: 10 }) });
+        expect((await storage.get()).websiteTime).toEqual({ current: 10 });
         expect(mock.data[today]).toEqual(day({ current: 10 }));
     });
 

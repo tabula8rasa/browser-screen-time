@@ -392,7 +392,7 @@ describe('daily accounting, notifications, and persistence', () => {
         mock.data[today] = saved(5);
         mock.data['2026 10 6'] = saved(7);
         await start();
-        mock.browser.runtime.sendMessage.mockImplementation(async message => { mock.browser.runtime.onMessage.emit(message); });
+        mock.browser.runtime.sendMessage.mockImplementation(async message => { return mock.browser.runtime.onMessage.emit(message).find(result => result !== undefined); });
         const { default: CounterStorage } = await import('../src/scripts/counterStorage');
         await CounterStorage.mergeStorage({ [today]: { ...saved(5), websiteTime: { 'github.com': 2, 'new.example': 3 } } });
         await ticks(15);

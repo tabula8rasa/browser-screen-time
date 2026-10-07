@@ -52,6 +52,10 @@ async function main(): Promise<void> {
     let counterGeneration = 0;
     let settingsGeneration = 0;
     let counter: Counter | null = null;
+    const pendingSaves = new Set<Promise<void>>();
+    let replacementsPending = 0;
+    let replacementQueue = Promise.resolve();
+    let counterReloadNeeded = false;
     let currentTime = new Date();
     let settings: SettingsData | null = null;
     let tickInFlight = false;
@@ -327,6 +331,40 @@ async function main(): Promise<void> {
         counter = data ? Counter.constructFromDailyData(data) : new Counter();
         currentTime = new Date();
     });
+    CounterStorage.onReplacement(request => {
+        // Block immediately on message receipt, including queued replacements.
+        replacementsPending++;
+        counterGeneration++;
+        const operation = replacementQueue.then(async () => {
+            try {
+                // Every already-started write must settle BEFORE key enumeration
+                // or removal. New writes/ticks stay blocked until the queue drains.
+                await Promise.allSettled(Array.from(pendingSaves));
+                counter = await CounterStorage.replaceInBackground(request);
+                counterReloadNeeded = false;
+                currentTime = new Date();
+            } catch (error) {
+                // Removal/set can partially succeed. Reload the actual stored day
+                // rather than resurrecting the old in-memory snapshot on failure.
+                counter = null;
+                counterReloadNeeded = true;
+                try {
+                    counter = await CounterStorage.get();
+                    counterReloadNeeded = false;
+                    currentTime = new Date();
+                } catch (reloadError) {
+                    console.warn('Counter reload after replacement failed', reloadError);
+                }
+                throw error;
+            } finally {
+                counterGeneration++;
+                replacementsPending--;
+            }
+        });
+        // A failed request does not poison the next queued request.
+        replacementQueue = operation.catch(() => {});
+        return operation;
+    });
     recalculate();
     initializeFocus();
     const initialSettings = settingsGeneration;
@@ -337,6 +375,24 @@ async function main(): Promise<void> {
     ]);
 
     async function iterateCounter(): Promise<void> {
+        // Conservatively skip replacement time; never backfill discarded ticks.
+        if (replacementsPending) return;
+        if (counterReloadNeeded) {
+            if (tickInFlight) return;
+            tickInFlight = true;
+            const generation = counterGeneration;
+            try {
+                const next = await CounterStorage.get();
+                if (!replacementsPending && generation === counterGeneration) {
+                    counter = next;
+                    counterReloadNeeded = false;
+                    currentTime = new Date();
+                }
+            } catch (error) {
+                console.warn('Counter recovery failed', error);
+            } finally { tickInFlight = false; }
+            return;
+        }
         // A failed activation lookup must recover without another user event.
         // Reuse the 1s cadence; never overlap the current generation's lookup.
         if (activeRecoveryNeeded && state.focusedWindowId !== null && pendingTabRequest !== tabGeneration) {
@@ -350,7 +406,7 @@ async function main(): Promise<void> {
         const countGeneration = counterGeneration;
         const focus = focusGeneration;
         const tabRequest = tabGeneration;
-        const stillCurrent = () => generation === trackingGeneration && countGeneration === counterGeneration &&
+        const stillCurrent = () => !replacementsPending && generation === trackingGeneration && countGeneration === counterGeneration &&
             focus === focusGeneration && tabRequest === tabGeneration && effectiveTab?.id === target.id;
         try {
             // Keep the existing rollover behavior and +1 accounting in this task.
@@ -385,7 +441,11 @@ async function main(): Promise<void> {
     }
     setInterval(() => { void iterateCounter(); }, 1000);
     setInterval(() => {
-        if (effectiveTab && counter) void CounterStorage.set(counter).catch(error => console.warn('Counter save failed', error));
+        if (replacementsPending || !effectiveTab || !counter) return;
+        const write = CounterStorage.set(counter);
+        pendingSaves.add(write);
+        void write.catch(error => console.warn('Counter save failed', error))
+            .finally(() => pendingSaves.delete(write));
     }, saveIntervalTime);
 }
 

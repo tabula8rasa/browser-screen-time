@@ -1,6 +1,6 @@
 import Utils from './utils'
 import Counter, { CounterDailyData, CounterData } from './counter'
-import { CounterOverwriteEvent, CounterTimespanInterval, MsgEvent } from './types'
+import { CounterOverwriteEvent, CounterReplacementRequest, CounterReplacementResponse, CounterTimespanInterval, MsgEvent } from './types'
 import browser from 'webextension-polyfill'
 import { isEqual, addDays, isAfter } from 'date-fns'
 import { addDomainSeconds, copyDomainTimes } from './domainTime';
@@ -70,13 +70,22 @@ export default class CounterStorage {
         return Object.keys(allData).filter((key) => key !== 'settings');
     }
 
-    private static async sendOverwriteEvent(counterData: CounterData): Promise<void> {
-        const currentDayKey = Utils.formatDate(new Date());
-        const msg: CounterOverwriteEvent = {
-            type: 'counter',
-            counter: counterData[currentDayKey]
+    // UI contexts request a background-owned transaction; they never perform the
+    // destructive writes themselves. Missing background acknowledgement is failure.
+    private static async requestReplacement(mode: CounterReplacementRequest['mode'], data: CounterData): Promise<void> {
+        const response: CounterReplacementResponse = await browser.runtime.sendMessage({ type: 'counter:replace', mode, data });
+        if (response?.ok !== true) {
+            throw new Error(response && 'error' in response ? response.error : 'Counter replacement was not acknowledged');
         }
-        await browser.runtime.sendMessage(msg);
+    }
+
+    static onReplacement(callback: (request: CounterReplacementRequest) => Promise<void>): void {
+        browser.runtime.onMessage.addListener(message => {
+            if (message?.type !== 'counter:replace') return;
+            return callback(message as CounterReplacementRequest)
+                .then((): CounterReplacementResponse => ({ ok: true }))
+                .catch((error): CounterReplacementResponse => ({ ok: false, error: String(error?.message ?? error) }));
+        });
     }
 
     private static normalizeDomainMaps(data: CounterData): CounterData {
@@ -86,21 +95,29 @@ export default class CounterStorage {
     }
 
     static async overwriteStorage(newData: unknown): Promise<void> {
-        if (!Utils.isValidCounterData(newData)) {
-            return;
-        }
-        const newCounterData = this.normalizeDomainMaps(newData as CounterData);
-        const allKeys = await this.getSavedKeys();
-        await browser.storage.local.remove(allKeys);
-        await browser.storage.local.set(newCounterData);
-        await this.sendOverwriteEvent(newCounterData);
+        if (!Utils.isValidCounterData(newData)) return;
+        await this.requestReplacement('overwrite', this.normalizeDomainMaps(newData as CounterData));
     }
 
     static async mergeStorage(newData: unknown): Promise<void> {
-        if (!Utils.isValidCounterData(newData)) {
-            return;
-        }
-        const newCounterData = this.normalizeDomainMaps(newData as CounterData);
+        if (!Utils.isValidCounterData(newData)) return;
+        await this.requestReplacement('merge', this.normalizeDomainMaps(newData as CounterData));
+    }
+
+    // Only the background transaction invokes this storage phase. Revalidate at
+    // the receiving context; keep the external daily JSON schema unchanged.
+    static async replaceInBackground(request: CounterReplacementRequest): Promise<Counter> {
+        if (request.mode !== 'overwrite' && request.mode !== 'merge') throw new Error('Invalid replacement mode');
+        if (!Utils.isValidCounterData(request.data)) throw new Error('Invalid replacement data');
+        const newCounterData = this.normalizeDomainMaps(request.data as CounterData);
+        if (request.mode === 'merge') return this.mergeInBackground(newCounterData);
+        const allKeys = await this.getSavedKeys();
+        await browser.storage.local.remove(allKeys);
+        await browser.storage.local.set(newCounterData);
+        return this.currentCounter(newCounterData);
+    }
+
+    private static async mergeInBackground(newCounterData: CounterData): Promise<Counter> {
         const allKeys = await this.getSavedKeys();
         const oldCounterData = this.normalizeDomainMaps(await browser.storage.local.get(allKeys));
 
@@ -121,7 +138,12 @@ export default class CounterStorage {
         }
 
         await browser.storage.local.set(updatedCounterData);
-        await this.sendOverwriteEvent(updatedCounterData);
+        return this.currentCounter(updatedCounterData);
+    }
+
+    private static currentCounter(data: CounterData): Counter {
+        const current = data[Utils.getTodaysDate()];
+        return current ? Counter.constructFromDailyData(current) : new Counter();
     }
 
     static async getSavedDates(): Promise<Array<Date>> {

@@ -18,7 +18,7 @@ function ownNumber(map: object, key: string, value: number) {
 beforeEach(() => {
     vi.resetModules(); vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 9, 7, 12));
     mock = createBrowserMock(); mock.data.settings = { ...settings, notifications: true, notificationTimer: '1' };
-    mock.browser.runtime.sendMessage.mockImplementation(async msg => { mock.browser.runtime.onMessage.emit(msg); });
+    mock.browser.runtime.sendMessage.mockImplementation(async msg => { return mock.browser.runtime.onMessage.emit(msg).find(result => result !== undefined); });
     vi.doMock('webextension-polyfill', () => ({ default: mock.browser }));
 });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
@@ -113,6 +113,7 @@ describe('prototype-safe domain accounting', () => {
         expect(result.mostUsed().reduce((sum, site) => sum + site.time, 0)).toBe(result.netTime);
     });
     it('stored/imported own keys survive export, overwrite, merge, and reload without prototype mutation', async () => {
+        await import('../src/scripts/background'); await flush();
         const { default: storage } = await import('../src/scripts/counterStorage');
         const input = JSON.parse(JSON.stringify({ [today]: day(names.map(name => [name, 2])) }));
         const before = structuredClone(input); await storage.overwriteStorage(input);
