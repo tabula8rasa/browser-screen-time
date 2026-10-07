@@ -388,6 +388,20 @@ describe('daily accounting, notifications, and persistence', () => {
         expect(mock.data[today]).toBeUndefined();
         await ticks(15); expectSaved(today, 29, 30);
     });
+    it('import merge updates the running counter and subsequent persistence retains merged domains/history', async () => {
+        mock.data[today] = saved(5);
+        mock.data['2026 10 6'] = saved(7);
+        await start();
+        mock.browser.runtime.sendMessage.mockImplementation(async message => { mock.browser.runtime.onMessage.emit(message); });
+        const { default: CounterStorage } = await import('../src/scripts/counterStorage');
+        await CounterStorage.mergeStorage({ [today]: { ...saved(5), websiteTime: { 'github.com': 2, 'new.example': 3 } } });
+        await ticks(15);
+        expect(mock.data[today].netTime).toBeGreaterThanOrEqual(24);
+        expect(mock.data[today].netTime).toBeLessThanOrEqual(25);
+        expect(mock.data[today]).toEqual({ ...saved(mock.data[today].netTime), websiteTime: { 'github.com': mock.data[today].netTime - 3, 'new.example': 3 } });
+        expect(mock.data['2026 10 6']).toEqual(saved(7));
+        expect(mock.data.settings).toEqual(settings);
+    });
     it('loads existing daily data, adds fixed seconds, saves at 15s, and keeps the notification contract', async () => {
         mock.data[today] = saved(5); notificationsOn('6'); await start();
         await ticks(); expect(mock.browser.storage.local.set).not.toHaveBeenCalled();

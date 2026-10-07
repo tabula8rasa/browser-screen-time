@@ -97,30 +97,29 @@ export default class CounterStorage {
         const allKeys = await this.getSavedKeys();
         const oldCounterData = await browser.storage.local.get(allKeys);
 
-        const updatedCounterData = Object.assign(newCounterData, oldCounterData);
+        const updatedCounterData: CounterData = { ...oldCounterData };
 
-        Object.keys(updatedCounterData).forEach((key) => {
-            if (!newCounterData[key] || !oldCounterData[key]) {
-                return;
+        for (const [key, importedDay] of Object.entries(newCounterData)) {
+            const existingDay = oldCounterData[key] as CounterDailyData | undefined;
+            const websiteTime = { ...existingDay?.websiteTime, ...importedDay.websiteTime };
+
+            if (existingDay) {
+                for (const [domain, seconds] of Object.entries(importedDay.websiteTime)) {
+                    const existingSeconds = Object.prototype.hasOwnProperty.call(existingDay.websiteTime, domain)
+                        ? existingDay.websiteTime[domain] : 0;
+                    websiteTime[domain] = existingSeconds + seconds;
+                }
             }
 
-            updatedCounterData[key].netTime = newCounterData[key].netTime + oldCounterData[key].netTime;
-
-            const newWebsiteTime = newCounterData[key].websiteTime;
-            const oldWebsiteTime = oldCounterData[key].websiteTime;
-            const updatedWebsiteTime = Object.assign(newWebsiteTime, oldWebsiteTime);
-
-            Object.keys(updatedWebsiteTime).forEach((websiteKey) => {
-                if (!newWebsiteTime[websiteKey] || !oldWebsiteTime[websiteKey]) {
-                    return;
-                }
-
-                updatedWebsiteTime[websiteKey] = newWebsiteTime[websiteKey] + oldWebsiteTime[websiteKey];
-            })
-        });
+            updatedCounterData[key] = {
+                ...importedDay,
+                netTime: (existingDay?.netTime ?? 0) + importedDay.netTime,
+                websiteTime
+            };
+        }
 
         await browser.storage.local.set(updatedCounterData);
-        await this.sendOverwriteEvent(newCounterData);
+        await this.sendOverwriteEvent(updatedCounterData);
     }
 
     static async getSavedDates(): Promise<Array<Date>> {
