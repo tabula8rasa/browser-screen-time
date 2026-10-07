@@ -20,7 +20,7 @@ Run ```npm install``` to install dependencies, then ```npm run dev``` to build, 
 
 ### Local Firefox development
 
-On Linux, install dependencies with `npm ci` (Node.js 22 or later), then run:
+On Linux, install dependencies with `npm ci` (Node.js 22.13+ or 24+), then run:
 
 ```bash
 npm run firefox:dev
@@ -57,3 +57,17 @@ runner is active. Production builds remain `npm run prod`.
 ### Building for chrome
 Chrome manifest v3 no longer supports background scripts, instead moving to service_workers. Replace the line `"scripts": [ "background.js" ]` 
 with `"service_worker": "background.js"` and the extension should work with chrome. In the future this process could be automated.
+
+### Test dependencies
+
+The test stack supports the Node.js 22.0+ at the test-stack level: Vitest 3,
+jsdom 26, and Vite 6. Vite is overridden consistently throughout the test tree;
+Rollup 4.59.0 avoids newer native dependencies requiring Node 22.20+. Node typings
+are pinned to the original 20.5.6 resolution for TypeScript 5.2 compatibility.
+TypeScript 5.2.2 and Sass 1.66.1 are intentionally pinned to the original project
+versions; tracking does not require compiler or Sass upgrades.
+
+The complete toolchain requires Node.js `^22.13.0 || >=24.0.0`, declared in
+package.json: the existing web-ext → addons-linter → espree/eslint-visitor-keys
+chain already requires that range. Test dependencies do not raise this floor.
+Node 23 is outside that existing dependency range.

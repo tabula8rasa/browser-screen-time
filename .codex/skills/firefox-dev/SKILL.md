@@ -7,7 +7,7 @@ Use the repository runner from the project root. Read `AGENTS.md` and the applic
 project requirements before implementation; this skill does not authorize changes
 outside the user's task.
 
-If dependencies are missing, run `npm ci`. The runner requires Linux, Node.js 22+,
+If dependencies are missing, run `npm ci`. The runner requires Linux, Node.js 22.13+ or 24+,
 Firefox, Bash, `setsid`, `flock`, and a graphical desktop session.
 
 ```bash
