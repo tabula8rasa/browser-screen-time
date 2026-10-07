@@ -35,7 +35,7 @@ export default class Counter {
         let mostUsed: Array<WebsiteData> = sorted.slice(0, amountOfSites);
         // Add additional "other" site which has all the other sites' time combined
         if (sorted.length > amountOfSites) {
-            const time = sorted.slice(amountOfSites, sorted.length - 1).reduce((accumulator: number, current: WebsiteData): number => accumulator + current.time, 1);
+            const time = sorted.slice(amountOfSites).reduce((accumulator: number, current: WebsiteData): number => accumulator + current.time, 0);
             let other: WebsiteData = {
                 time: time,
                 url: 'other',
