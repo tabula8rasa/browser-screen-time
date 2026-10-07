@@ -369,9 +369,7 @@ async function main(): Promise<void> {
             }
             // No awaits from the final validation through attribution/notification.
             const hostname = new URL(tab.url).hostname;
-            counter.websiteTime[hostname] = (counter.websiteTime[hostname] || 0) + 1;
-            counter.netTime++;
-            const website = counter.websiteTime[hostname];
+            const website = counter.addSecond(hostname);
             if (settings.notifications && website % parseInt(settings.notificationTimer as string) === 0) {
                 void browser.notifications.create({
                     type: 'basic', iconUrl: browser.runtime.getURL('assets/icons/256px.png'),

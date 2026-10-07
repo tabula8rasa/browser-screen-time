@@ -1,4 +1,5 @@
 import { WebsiteMap, WebsiteData } from './types'
+import { addDomainSeconds, copyDomainTimes } from './domainTime';
 
 export interface CounterDailyData {
     netTime: number;
@@ -20,13 +21,19 @@ export default class Counter {
 
     constructor(netTime: number = 0, websiteTime: WebsiteMap = {}) {
         this.netTime = netTime;
-        this.websiteTime = websiteTime;
+        this.websiteTime = copyDomainTimes(websiteTime);
         this.colors = ['#227C9D', '#17C3B2', '#FFCB77', '#FE6D73'];
         this.otherColor = '#CFCFCF';
     }
 
     public static constructFromDailyData(counterData: CounterDailyData) {
         return new Counter(counterData.netTime, counterData.websiteTime);
+    }
+
+    public addSecond(domain: string): number {
+        const seconds = addDomainSeconds(this.websiteTime, domain, 1);
+        this.netTime++;
+        return seconds;
     }
 
     public mostUsed(): Array<WebsiteData> {

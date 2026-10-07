@@ -3,6 +3,7 @@ import Counter, { CounterDailyData, CounterData } from './counter'
 import { CounterOverwriteEvent, CounterTimespanInterval, MsgEvent } from './types'
 import browser from 'webextension-polyfill'
 import { isEqual, addDays, isAfter } from 'date-fns'
+import { addDomainSeconds, copyDomainTimes } from './domainTime';
 
 export default class CounterStorage {
     static async set(counter: Counter) {
@@ -11,7 +12,8 @@ export default class CounterStorage {
 
     static async getSingleDay(date: Date): Promise<Counter> {
         const key = Utils.formatDate(date);
-        return (await browser.storage.local.get(key))[key];
+        const data = (await browser.storage.local.get(key))[key];
+        return data ? { ...data, websiteTime: copyDomainTimes(data.websiteTime) } : data;
     }
 
     static async get(interval: CounterTimespanInterval = [new Date, new Date]): Promise<Counter> {
@@ -34,8 +36,7 @@ export default class CounterStorage {
             if (data) {
                 accumalativeCounter.netTime += data.netTime;
                 for (let [url, time] of Object.entries(data.websiteTime)) {
-                    accumalativeCounter.websiteTime[url] =
-                        accumalativeCounter.websiteTime[url] ? accumalativeCounter.websiteTime[url] + time : time;
+                    addDomainSeconds(accumalativeCounter.websiteTime, url, time);
                 }
             }
 
@@ -78,11 +79,17 @@ export default class CounterStorage {
         await browser.runtime.sendMessage(msg);
     }
 
+    private static normalizeDomainMaps(data: CounterData): CounterData {
+        return Object.fromEntries(Object.entries(data).map(([date, day]) => [
+            date, { ...day, websiteTime: copyDomainTimes(day.websiteTime) }
+        ]));
+    }
+
     static async overwriteStorage(newData: unknown): Promise<void> {
         if (!Utils.isValidCounterData(newData)) {
             return;
         }
-        const newCounterData = newData as CounterData;
+        const newCounterData = this.normalizeDomainMaps(newData as CounterData);
         const allKeys = await this.getSavedKeys();
         await browser.storage.local.remove(allKeys);
         await browser.storage.local.set(newCounterData);
@@ -93,22 +100,17 @@ export default class CounterStorage {
         if (!Utils.isValidCounterData(newData)) {
             return;
         }
-        const newCounterData = newData as CounterData;
+        const newCounterData = this.normalizeDomainMaps(newData as CounterData);
         const allKeys = await this.getSavedKeys();
-        const oldCounterData = await browser.storage.local.get(allKeys);
+        const oldCounterData = this.normalizeDomainMaps(await browser.storage.local.get(allKeys));
 
         const updatedCounterData: CounterData = { ...oldCounterData };
 
         for (const [key, importedDay] of Object.entries(newCounterData)) {
             const existingDay = oldCounterData[key] as CounterDailyData | undefined;
-            const websiteTime = { ...existingDay?.websiteTime, ...importedDay.websiteTime };
-
-            if (existingDay) {
-                for (const [domain, seconds] of Object.entries(importedDay.websiteTime)) {
-                    const existingSeconds = Object.prototype.hasOwnProperty.call(existingDay.websiteTime, domain)
-                        ? existingDay.websiteTime[domain] : 0;
-                    websiteTime[domain] = existingSeconds + seconds;
-                }
+            const websiteTime = copyDomainTimes(existingDay?.websiteTime ?? {});
+            for (const [domain, seconds] of Object.entries(importedDay.websiteTime)) {
+                addDomainSeconds(websiteTime, domain, seconds);
             }
 
             updatedCounterData[key] = {
