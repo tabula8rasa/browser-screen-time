@@ -18,9 +18,42 @@ Browser screen time is an extension which helps you track of the amount of time 
 ## Building the extension
 Run ```npm install``` to install dependencies, then ```npm run dev``` to build, or ```npm run watch``` to build and then watch for changes.
 
+### Local Firefox development
+
+On Linux, install dependencies with `npm ci` (Node.js 22 or later), then run:
+
+```bash
+npm run firefox:dev
+npm run firefox:status
+npm run firefox:logs       # follows logs; Ctrl+C only stops the log viewer
+npm run firefox:restart
+npm run firefox:stop
+```
+
+The equivalent entry point is `bash scripts/firefox-dev.sh start|stop|restart|status|logs`.
+The runner uses the existing Webpack watch command, waits for the first successful
+build, and launches the project-local Mozilla `web-ext` against `dist/`. Source
+edits rebuild automatically; changes in `dist/` automatically reload the temporary
+extension. No `about:debugging` installation or Reload click is needed.
+
+Firefox runs as a separate instance using only `.dev/firefox-profile`. This profile
+persists between runs to retain test-site state. **It is an insecure development-only
+profile:** web-ext changes security/debugging preferences. Never use it for normal
+browsing, personal accounts, or Firefox Sync. The normal Firefox profile and its AMO
+extension are not used. See [Mozilla's profile warning](https://extensionworkshop.com/documentation/develop/web-ext-command-reference/#--keep-profile-changes).
+
+All profile, temporary, artifact, PID, and log files are ignored under `.dev/`.
+`start` is idempotent; `stop` signals only process groups verified as belonging to
+this runner. Closing the development Firefox shuts down its watcher too. Runtime
+logs are `.dev/supervisor.log`, `.dev/webpack.log`, and `.dev/web-ext.log`; `status`
+returns nonzero when the environment is not ready. Startup failures report logs
+and clean up owned children. Install Firefox, Bash, `setsid`, and `flock`; a graphical
+desktop session must be available. Set `FIREFOX_DEV_BINARY=/absolute/path/to/firefox`
+before starting to select another Firefox binary, without changing the profile.
+
+After `stop`, deleting `.dev/` resets development state. Do not delete it while the
+runner is active. Production builds remain `npm run prod`.
+
 ### Building for chrome
 Chrome manifest v3 no longer supports background scripts, instead moving to service_workers. Replace the line `"scripts": [ "background.js" ]` 
 with `"service_worker": "background.js"` and the extension should work with chrome. In the future this process could be automated.
-
-        
-        

@@ -6,7 +6,12 @@
   "scripts": {
     "dev": "webpack --node-env development --config ./webpack.config.js",
     "prod": "webpack --node-env production --config ./webpack.config.js",
-    "watch": "webpack -w --node-env development --config ./webpack.config.js"
+    "watch": "webpack -w --node-env development --config ./webpack.config.js",
+    "firefox:dev": "bash scripts/firefox-dev.sh start",
+    "firefox:stop": "bash scripts/firefox-dev.sh stop",
+    "firefox:restart": "bash scripts/firefox-dev.sh restart",
+    "firefox:status": "bash scripts/firefox-dev.sh status",
+    "firefox:logs": "bash scripts/firefox-dev.sh logs"
   },
   "repository": {
     "type": "git",
@@ -35,6 +40,7 @@
     "style-loader": "^3.3.3",
     "ts-loader": "^9.4.4",
     "typescript": "^5.2.2",
+    "web-ext": "^10.7.0",
     "webpack": "^5.88.2",
     "webpack-cli": "^5.1.4"
   },
