@@ -7,6 +7,42 @@
 
 Browser screen time is an extension which helps you track of the amount of time you spend online
 
+## Local-first MVP
+
+The large extension window is a single dashboard: total screen time, most used
+site, daily average, daily stacked usage, time distribution, Day Timeline,
+previous-period changes, and a year heatmap. Select 1, 7, 30, or custom calendar
+days; site selection filters the daily chart. The popup remains a saved snapshot.
+
+Daily statistics retain the existing date keys and canonical import/export format.
+An additive storage codec preserves hostname keys affected by Firefox API transport.
+Detailed sessions use a separate local IndexedDB database and the same authoritative
+tracking decision. No account, backend, remote favicon service, visit counter,
+or Pomodoro is used. Neither dataset is sent to a server.
+
+The timeline uses real session intervals, not reconstructed daily totals. Legacy
+data remains useful for aggregate metrics and is labelled as lacking detailed
+history. Timeline smoothing only changes displayed intervals; detailed zoom shows
+raw intervals. Historical day/time-zone identities remain fixed, including DST
+and travel groups. Aggregate seconds and session durations can differ because
+they measure fixed accounting ticks and observed decision intervals separately.
+
+Settings offers a full backup and a compatible daily-totals-only export. Legacy
+imports remain supported. Full backups support overwrite; detailed additive merge
+is rejected because overlapping histories cannot safely be combined. Daily-only
+merge preserves totals while invalidating detailed history for affected dates.
+Reset preserves settings. Back up important history before replacement.
+
+Session checkpoints have finite safe endpoints. Restart never fills unobserved
+time, and a detailed-storage failure leaves daily tracking operational. Replacement
+uses strict IndexedDB intents and preserves actual saved daily values after an
+interruption; it never replays a destructive target. Independent storage APIs
+cannot promise shared atomicity under arbitrary disk or power failure. No automatic
+history retention/deletion is configured. See [the session contract](docs/SESSIONS.md)
+and [MVP requirements](docs/MVP.md).
+Release validation and platform boundaries are recorded in
+[MVP acceptance](docs/MVP_ACCEPTANCE.md).
+
 ## Downloading the extension
 
 ### Chrome

@@ -1,6 +1,6 @@
 # Session history design
 
-Status: implementation contract, 2026-10-07. Autonomous MVP authorization supersedes earlier approval-only scope notes; production implementation and validation are tracked below. This document specifies the next local session-history milestone; the reviewed tracking engine remains stable infrastructure. Earlier historical implementation notes in TRACKING.md and TRACKING_ACCEPTANCE.md are not instructions to rebuild that engine.
+Status: implemented and validated, 2026-10-08. Autonomous MVP authorization supersedes earlier approval-only scope notes. The reviewed tracking engine remains stable infrastructure. Earlier historical implementation notes in TRACKING.md and TRACKING_ACCEPTANCE.md are not instructions to rebuild that engine. Final requirement mapping, evidence and residual platform boundaries are recorded in [MVP_ACCEPTANCE.md](MVP_ACCEPTANCE.md).
 
 ## 1. Goals, boundaries, and repository baseline
 
@@ -457,3 +457,7 @@ Native Firefox 157 testing found that API-return object normalization removes dy
 Replacement preflight validates persisted control/open ownership, references and bounds without changing them, using the same invariants as startup recovery. Corruption or an existing replacement intent rejects before intent preparation or daily mutation; saved daily values and unsaved live counter seconds remain intact.
 
 Legacy daily imports accept finite nonnegative fractional seconds. Independent `netTime` and domain additions can differ by IEEE754 rounding after an ordinary +1 tick. A shared numeric consistency predicate permits only a documented relative forward-error bound from nonnegative summation and independent total rounding, with no absolute epsilon floor. Nonfinite values, overflow, zero-versus-positive values and material mismatches reject. Stored/exported numbers and fixed +1 accounting remain unchanged; this rule never reconstructs missing domain amounts. Independent design review approved this compatibility rule after reproducing the fractional import-to-save regression.
+
+### Implementation gate closure
+
+The historical gates in section 17 are closed for the supported MVP contract: native Firefox 157 reported strict transaction durability; real finite-session reload recovery and both strict-intent/local-write interruption phases passed without target replay. Full/daily exports, legacy/full imports, reset, detailed-merge rejection and corrupt preflight passed automated and native checks. Capture-calendar DST/travel rendering and daily-only export affordances are implemented. The final integrated suite has 240 passing tests; both typechecks, production build and diff-check pass. Independent final cold review returned READY TO SHIP MVP with no confirmed correctness blocker. Arbitrary power/disk shared atomicity remains the explicit residual limitation, not an unresolved implementation gate.
