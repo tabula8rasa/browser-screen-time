@@ -32,23 +32,24 @@
   "homepage": "https://github.com/aaaeka/browser-screen-time#readme",
   "devDependencies": {
     "@types/chrome": "^0.0.293",
+    "@types/node": "20.5.6",
     "@types/react": "^19.0.4",
     "@types/react-dom": "^19.0.2",
     "@types/webextension-polyfill": "^0.10.2",
     "copy-webpack-plugin": "^11.0.0",
     "css-loader": "^6.8.1",
+    "fake-indexeddb": "6.2.4",
     "jsdom": "^26.1.0",
     "sass": "1.66.1",
     "sass-loader": "^13.3.2",
     "style-loader": "^3.3.3",
     "ts-loader": "^9.4.4",
     "typescript": "5.2.2",
+    "vite": "^6.4.3",
     "vitest": "^3.2.4",
     "web-ext": "^10.7.0",
     "webpack": "^5.88.2",
-    "webpack-cli": "^5.1.4",
-    "@types/node": "20.5.6",
-    "vite": "^6.4.3"
+    "webpack-cli": "^5.1.4"
   },
   "dependencies": {
     "date-fns": "^4.1.0",

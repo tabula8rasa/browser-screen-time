@@ -1,4 +1,6 @@
 import { vi } from 'vitest';
+import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
+import { setImmediate as realImmediate } from 'node:timers';
 
 export function event() {
     const listeners = new Set<(...args: any[]) => any>();
@@ -17,7 +19,7 @@ export function deferred<T>() {
 }
 
 export async function flush() {
-    for (let i = 0; i < 20; i++) await Promise.resolve();
+    for (let i = 0; i < 20; i++) { await Promise.resolve(); await new Promise<void>(resolve => realImmediate(resolve)); }
 }
 
 export class MockPort {
@@ -31,6 +33,9 @@ export class MockPort {
 }
 
 export function createBrowserMock() {
+    vi.stubGlobal('indexedDB', new IDBFactory()); vi.stubGlobal('IDBKeyRange', IDBKeyRange);
+    // Native IDB events remain event-loop tasks while tracking timers are controlled.
+    vi.stubGlobal('setImmediate', realImmediate);
     const data: Record<string, any> = {};
     const activeTabs = new Map<number, any>([[1, { id: 10, windowId: 1, active: true, url: 'https://github.com/' }]]);
     const documents = new Map<string, string>();

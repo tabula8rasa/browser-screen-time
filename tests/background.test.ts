@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createBrowserMock, deferred, element, flush, MockPort, settings } from './helpers/browserMock';
 
 let mock: ReturnType<typeof createBrowserMock>;
+let history: import('../src/scripts/sessionHistory').SessionHistory;
 const today = '2026 10 7';
 const saved = (netTime = 0) => ({ netTime, websiteTime: { 'github.com': netTime },
     colors: ['#227C9D', '#17C3B2', '#FFCB77', '#FE6D73'], otherColor: '#CFCFCF' });
@@ -11,7 +12,12 @@ function expectSaved(key: string, minimum: number, maximum = minimum) {
     expect(actual.netTime).toBeLessThanOrEqual(maximum);
     expect(actual).toEqual(saved(actual.netTime));
 }
-async function start() { await import('../src/scripts/background'); await flush(); }
+async function start() {
+    const {SessionHistory} = await import('../src/scripts/sessionHistory');
+    const original = SessionHistory.prototype.start;
+    vi.spyOn(SessionHistory.prototype, 'start').mockImplementation(function () { history = this; original.call(this); });
+    await import('../src/scripts/background'); await flush(); await history.settled();
+}
 async function ticks(n = 1) { await vi.advanceTimersByTimeAsync(n * 1000); await flush(); }
 async function media(tabId = 10, frameId = 0, documentId = 'doc', facts = element(), token = documentId) {
     const port = new MockPort({ tab: { id: tabId }, frameId, documentId });
@@ -44,7 +50,7 @@ beforeEach(() => {
     vi.doMock('webextension-polyfill', () => ({ default: mock.browser }));
     vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
-afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+afterEach(() => { history?.stop(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('focus and active-tab orchestration', () => {
     it('recovers a rejected activation lookup on the same focused tab without more user events', async () => {

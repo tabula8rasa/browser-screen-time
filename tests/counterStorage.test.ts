@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createBrowserMock, settings } from './helpers/browserMock';
 import type { CounterDailyData } from '../src/scripts/counter';
+import { encodeDailyData } from '../src/scripts/dailyDataCodec';
 
 let mock: ReturnType<typeof createBrowserMock>;
 let storage: typeof import('../src/scripts/counterStorage').default;
@@ -83,6 +84,6 @@ describe('daily data import merge', () => {
     it('handles domain names that coincide with inherited object properties', async () => {
         mock.data[today] = day({ ordinary: 3 });
         await storage.mergeStorage({ [today]: day(JSON.parse('{"constructor":2,"__proto__":4}')) });
-        expect(mock.data[today]).toEqual(day(JSON.parse('{"ordinary":3,"constructor":2,"__proto__":4}')));
+        expect(mock.data[today]).toEqual(encodeDailyData(day(JSON.parse('{"ordinary":3,"constructor":2,"__proto__":4}'))));
     });
 });

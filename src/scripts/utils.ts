@@ -1,4 +1,5 @@
 import browser from 'webextension-polyfill';
+import { consistentDailyTotal } from './dailyTotals';
 
 export default class Utils {
     static formatDate(date: Date): string {
@@ -43,6 +44,13 @@ export default class Utils {
         return browser.runtime.id;
     }
 
+    static isDailyKey(key: string): boolean {
+        if (!/^\d{4} \d{1,2} \d{1,2}$/.test(key)) return false;
+        const [year, month, day] = key.split(' ').map(Number);
+        const value = new Date(0); value.setUTCFullYear(year, month - 1, day); value.setUTCHours(0, 0, 0, 0);
+        return value.getUTCFullYear() === year && value.getUTCMonth() === month - 1 && value.getUTCDate() === day;
+    }
+
     static isValidCounterData(data: unknown): boolean {
         const expectedColors = ["#227C9D", "#17C3B2", "#FFCB77", "#FE6D73"];
         const expectedOtherColor = "#CFCFCF";
@@ -52,7 +60,7 @@ export default class Utils {
         }
 
         Object.entries(data).forEach(([key, value]: [string, any]) => {
-            if (!/^\d{4} \d{1,2} \d{1,2}$/.test(key)) {
+            if (!this.isDailyKey(key)) {
                 throw new Error(`Invalid top-level key format: "${key}". Expected "YYYY M D".`);
             }
 
@@ -62,7 +70,7 @@ export default class Utils {
 
             const { netTime, websiteTime, colors, otherColor } = value;
 
-            if (typeof netTime !== 'number') {
+            if (typeof netTime !== 'number' || !Number.isFinite(netTime) || netTime < 0) {
                 throw new Error(`The "netTime" key under "${key}" must be a number.`);
             }
 
@@ -70,12 +78,12 @@ export default class Utils {
                 typeof websiteTime !== 'object' ||
                 websiteTime === null ||
                 Array.isArray(websiteTime) ||
-                !Object.values(websiteTime).every(time => typeof time === 'number')
+                !Object.values(websiteTime).every(time => typeof time === 'number' && Number.isFinite(time) && time >= 0)
             ) {
                 throw new Error(`The "websiteTime" key under "${key}" must be an object with numeric values.`);
             } else {
                 const totalWebsiteTime = Object.values(websiteTime).reduce((sum, time) => (sum as number) + (time as number), 0);
-                if (totalWebsiteTime !== netTime) {
+                if (!consistentDailyTotal(netTime, Object.values(websiteTime) as number[])) {
                     throw new Error(
                         `In day "${key}", the sum of "websiteTime" (${totalWebsiteTime}) does not match "netTime" (${netTime}).`
                     );

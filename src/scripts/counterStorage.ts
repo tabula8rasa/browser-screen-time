@@ -4,16 +4,18 @@ import { CounterOverwriteEvent, CounterReplacementRequest, CounterReplacementRes
 import browser from 'webextension-polyfill'
 import { isEqual, addDays, isAfter } from 'date-fns'
 import { addDomainSeconds, copyDomainTimes } from './domainTime';
+import { parseTransfer } from './dataTransfer';
+import { decodeDailyData, decodeDailyMap, encodeDailyData, encodeDailyMap } from './dailyDataCodec';
 
 export default class CounterStorage {
     static async set(counter: Counter) {
-        await browser.storage.local.set({ [Utils.getTodaysDate()]: counter });
+        await browser.storage.local.set({ [Utils.getTodaysDate()]: encodeDailyData(counter) });
     }
 
-    static async getSingleDay(date: Date): Promise<Counter> {
+    static async getSingleDay(date: Date): Promise<CounterDailyData> {
         const key = Utils.formatDate(date);
         const data = (await browser.storage.local.get(key))[key];
-        return data ? { ...data, websiteTime: copyDomainTimes(data.websiteTime) } : data;
+        return data ? decodeDailyData(data) : data;
     }
 
     static async get(interval: CounterTimespanInterval = [new Date, new Date]): Promise<Counter> {
@@ -58,21 +60,27 @@ export default class CounterStorage {
     }
 
     static async getAllJSONString(): Promise<string> {
+        return JSON.stringify(await this.savedData());
+    }
+
+    static async savedData(): Promise<CounterData> {
         const allData = await browser.storage.local.get();
-        if (allData.settings) {
-            delete allData.settings;
-        }
-        return JSON.stringify(allData);
+        return decodeDailyMap(Object.fromEntries(Object.entries(allData).filter(([key]) => Utils.isDailyKey(key))));
     }
 
     static async getSavedKeys(): Promise<Array<string>> {
-        const allData = await browser.storage.local.get();
-        return Object.keys(allData).filter((key) => key !== 'settings');
+        return Object.keys(await browser.storage.local.get()).filter(key => Utils.isDailyKey(key));
+    }
+
+    static async exportJSONString(mode: 'full' | 'daily'): Promise<string> {
+        const response = await browser.runtime.sendMessage({ type: 'data:export', mode });
+        if (!response?.ok || typeof response.json !== 'string') throw new Error(response?.error ?? 'Export was not acknowledged');
+        return response.json;
     }
 
     // UI contexts request a background-owned transaction; they never perform the
     // destructive writes themselves. Missing background acknowledgement is failure.
-    private static async requestReplacement(mode: CounterReplacementRequest['mode'], data: CounterData): Promise<void> {
+    private static async requestReplacement(mode: CounterReplacementRequest['mode'], data: unknown): Promise<void> {
         const response: CounterReplacementResponse = await browser.runtime.sendMessage({ type: 'counter:replace', mode, data });
         if (response?.ok !== true) {
             throw new Error(response && 'error' in response ? response.error : 'Counter replacement was not acknowledged');
@@ -95,13 +103,30 @@ export default class CounterStorage {
     }
 
     static async overwriteStorage(newData: unknown): Promise<void> {
-        if (!Utils.isValidCounterData(newData)) return;
-        await this.requestReplacement('overwrite', this.normalizeDomainMaps(newData as CounterData));
+        parseTransfer(newData, 'overwrite');
+        await this.requestReplacement('overwrite', newData);
     }
 
     static async mergeStorage(newData: unknown): Promise<void> {
-        if (!Utils.isValidCounterData(newData)) return;
-        await this.requestReplacement('merge', this.normalizeDomainMaps(newData as CounterData));
+        parseTransfer(newData, 'merge');
+        await this.requestReplacement('merge', newData);
+    }
+
+    static async materializeTarget(mode: 'overwrite' | 'merge', incoming: CounterData): Promise<CounterData> {
+        const result = mode === 'merge' ? this.normalizeDomainMaps(await this.savedData()) : {};
+        for (const [key, importedDay] of Object.entries(incoming)) {
+            const existing = mode === 'merge' ? result[key] : undefined;
+            const websiteTime = copyDomainTimes(existing?.websiteTime ?? {});
+            for (const [domain, seconds] of Object.entries(importedDay.websiteTime)) addDomainSeconds(websiteTime, domain, seconds);
+            result[key] = { ...importedDay, netTime: (existing?.netTime ?? 0) + importedDay.netTime, websiteTime };
+        }
+        Utils.isValidCounterData(result); return result;
+    }
+
+    static async writeTarget(mode: 'overwrite' | 'merge', target: CounterData): Promise<Counter> {
+        if (mode === 'overwrite') await browser.storage.local.remove(await this.getSavedKeys());
+        await browser.storage.local.set(encodeDailyMap(target));
+        return this.currentCounter(target);
     }
 
     // Only the background transaction invokes this storage phase. Revalidate at
@@ -109,36 +134,8 @@ export default class CounterStorage {
     static async replaceInBackground(request: CounterReplacementRequest): Promise<Counter> {
         if (request.mode !== 'overwrite' && request.mode !== 'merge') throw new Error('Invalid replacement mode');
         if (!Utils.isValidCounterData(request.data)) throw new Error('Invalid replacement data');
-        const newCounterData = this.normalizeDomainMaps(request.data as CounterData);
-        if (request.mode === 'merge') return this.mergeInBackground(newCounterData);
-        const allKeys = await this.getSavedKeys();
-        await browser.storage.local.remove(allKeys);
-        await browser.storage.local.set(newCounterData);
-        return this.currentCounter(newCounterData);
-    }
-
-    private static async mergeInBackground(newCounterData: CounterData): Promise<Counter> {
-        const allKeys = await this.getSavedKeys();
-        const oldCounterData = this.normalizeDomainMaps(await browser.storage.local.get(allKeys));
-
-        const updatedCounterData: CounterData = { ...oldCounterData };
-
-        for (const [key, importedDay] of Object.entries(newCounterData)) {
-            const existingDay = oldCounterData[key] as CounterDailyData | undefined;
-            const websiteTime = copyDomainTimes(existingDay?.websiteTime ?? {});
-            for (const [domain, seconds] of Object.entries(importedDay.websiteTime)) {
-                addDomainSeconds(websiteTime, domain, seconds);
-            }
-
-            updatedCounterData[key] = {
-                ...importedDay,
-                netTime: (existingDay?.netTime ?? 0) + importedDay.netTime,
-                websiteTime
-            };
-        }
-
-        await browser.storage.local.set(updatedCounterData);
-        return this.currentCounter(updatedCounterData);
+        const target = await this.materializeTarget(request.mode, request.data as CounterData);
+        return this.writeTarget(request.mode, target);
     }
 
     private static currentCounter(data: CounterData): Counter {

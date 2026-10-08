@@ -6,6 +6,9 @@ import Counter, { CounterDailyData } from './counter';
 import Utils from './utils';
 import { ActiveTrackingTab, MEDIA_PORT, MediaDocumentIdentity, SettingsData, TrackingState } from './types';
 import { MediaRegistry, trackingTab } from './trackingState';
+import { ReplacementPendingError, SessionHistory } from './sessionHistory';
+import { captureDayKey, emptyHistory, parseTransfer } from './dataTransfer';
+import { SessionExportV1 } from './sessionTypes';
 
 const saveIntervalTime = 15000;
 const extensionUUID = Utils.getExtensionUUID();
@@ -60,6 +63,7 @@ async function main(): Promise<void> {
     let settings: SettingsData | null = null;
     let tickInFlight = false;
     let effectiveTab: ActiveTrackingTab | null = null;
+    const history = new SessionHistory();
     let iconEnabled: boolean | null = null;
     let iconWork = Promise.resolve();
 
@@ -68,6 +72,8 @@ async function main(): Promise<void> {
         if (next?.id !== effectiveTab?.id || next?.url !== effectiveTab?.url ||
             next?.windowId !== effectiveTab?.windowId) trackingGeneration++;
         effectiveTab = next;
+        try { history.observe(next ? { kind: 'track', domain: new URL(next.url).hostname } : { kind: 'stop' }); }
+        catch (error) { console.warn('Session observer failed', error); }
         const enabled = next !== null;
         if (iconEnabled === enabled) return;
         iconEnabled = enabled;
@@ -331,40 +337,72 @@ async function main(): Promise<void> {
         counter = data ? Counter.constructFromDailyData(data) : new Counter();
         currentTime = new Date();
     });
-    CounterStorage.onReplacement(request => {
-        // Block immediately on message receipt, including queued replacements.
+    CounterStorage.onReplacement(async request => {
+        if (request.mode !== 'overwrite' && request.mode !== 'merge') throw new Error('Invalid replacement mode');
+        const parsed = parseTransfer(request.data, request.mode);
         replacementsPending++;
         counterGeneration++;
+        history.fenceReplacement();
         const operation = replacementQueue.then(async () => {
+            let dailyMutationStarted = false;
+            let prepared = false;
+            let dailySucceeded = false;
             try {
-                // Every already-started write must settle BEFORE key enumeration
-                // or removal. New writes/ticks stay blocked until the queue drains.
                 await Promise.allSettled(Array.from(pendingSaves));
-                counter = await CounterStorage.replaceInBackground(request);
-                counterReloadNeeded = false;
-                currentTime = new Date();
-            } catch (error) {
-                // Removal/set can partially succeed. Reload the actual stored day
-                // rather than resurrecting the old in-memory snapshot on failure.
-                counter = null;
-                counterReloadNeeded = true;
+                await history.preflight();
+                const target = await CounterStorage.materializeTarget(request.mode, parsed.daily);
+                await history.prepare({ key: 'replacement', operationId: crypto.randomUUID(),
+                    kind: request.mode === 'merge' ? 'legacy-merge' : Object.keys(parsed.daily).length ? 'overwrite' : 'reset',
+                    affectedDayKeys: Object.keys(parsed.daily).map(captureDayKey), beganAt: Date.now(), recovery: 'discard-affected-detail' });
+                prepared = true;
+                dailyMutationStarted = true;
                 try {
-                    counter = await CounterStorage.get();
-                    counterReloadNeeded = false;
-                    currentTime = new Date();
-                } catch (reloadError) {
-                    console.warn('Counter reload after replacement failed', reloadError);
+                    counter = await CounterStorage.writeTarget(request.mode, target);
+                    counterReloadNeeded = false; currentTime = new Date(); dailySucceeded = true;
+                } finally {
+                    // Daily accounting resumes independently from detailed-history
+                    // finalization, while later queued replacements retain gates.
+                    replacementsPending--; counterGeneration++;
                 }
+                await history.finalize(parsed.history, request.mode === 'overwrite' && !parsed.history ? Object.keys(parsed.daily).map(captureDayKey) : []);
+            } catch (error) {
+                if (dailyMutationStarted && !dailySucceeded) {
+                    counter = null; counterReloadNeeded = true;
+                    try { counter = await CounterStorage.get(); counterReloadNeeded = false; currentTime = new Date(); }
+                    catch (reloadError) { console.warn('Counter reload after replacement failed', reloadError); }
+                }
+                if (prepared) await history.cleanupReplacement();
+                if (prepared) throw new Error(`Data replacement partially completed; actual daily data is preserved. ${String((error as Error)?.message ?? error)}`);
                 throw error;
             } finally {
-                counterGeneration++;
-                replacementsPending--;
+                if (!dailyMutationStarted) { replacementsPending--; counterGeneration++; }
+                history.releaseReplacement();
             }
         });
-        // A failed request does not poison the next queued request.
         replacementQueue = operation.catch(() => {});
         return operation;
     });
+    browser.runtime.onMessage.addListener(message => {
+        if (message?.type === 'history:day') return history.query(message.dayKey);
+        if (message?.type === 'history:range') return history.query(undefined, [message.start, message.end], message.domainId);
+        if (message?.type !== 'data:export') return;
+        const work = replacementQueue.then(async () => {
+            if (message.mode !== 'full' && message.mode !== 'daily') throw new Error('Invalid export mode');
+            // Saved daily data remains the export meaning; history has its own
+            // finite transaction snapshot, not a shared millisecond guarantee.
+            const dailyAggregates = await CounterStorage.savedData();
+            if (message.mode === 'daily') return dailyAggregates;
+            let snapshot;
+            try { snapshot = await history.exportSnapshot(); }
+            catch (error) { if (error instanceof ReplacementPendingError) throw error; console.warn('Export history unavailable', error); snapshot = emptyHistory(); }
+            return { format: 'browser-screen-time', formatVersion: 1, exportedAt: Date.now(), dailyAggregates, history: snapshot } satisfies SessionExportV1;
+        });
+        // One recovered coordinator queue serializes exports and replacements.
+        replacementQueue = work.then(() => {}).catch(() => {});
+        return work.then(data => ({ ok: true, json: JSON.stringify(data) }), error => ({ ok: false, error: String(error?.message ?? error) }));
+    });
+    history.start();
+
     recalculate();
     initializeFocus();
     const initialSettings = settingsGeneration;

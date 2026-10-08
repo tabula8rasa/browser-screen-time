@@ -48,11 +48,12 @@ const Settings = () => {
         browser.runtime.sendMessage(msg);
     }
 
-    const exportData = async () => {
-        const exportData = await CounterStorage.getAllJSONString();
+    const exportData = async (mode: 'full' | 'daily') => {
+        try {
+        const exportData = await CounterStorage.exportJSONString(mode);
 
         const currentDay = format(new Date(), 'yyyy-MM-dd');
-        const fileName = `browser-screen-time-${currentDay}.json`;
+        const fileName = `browser-screen-time-${currentDay}${mode === 'daily' ? '-daily' : ''}.json`;
 
         const blob = new Blob([exportData], { type: 'application/json' });
 
@@ -63,7 +64,9 @@ const Settings = () => {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
         setNotification({ type: NotificationTypeEnum.SUCCESS, message: 'Successfully exported time data' });
+        } catch (error) { setNotification({ type: NotificationTypeEnum.ERROR, message: `Failed to export: ${error.message}` }); }
     }
 
     const pickFile = (): Promise<object> => {
@@ -124,6 +127,12 @@ const Settings = () => {
         }
     }
 
+    const resetData = async () => {
+        if (!window.confirm('Delete all daily totals and session history? Settings will be preserved.')) return;
+        try { await CounterStorage.overwriteStorage({}); setNotification({ type: NotificationTypeEnum.SUCCESS, message: 'Time data reset' }); }
+        catch (error) { setNotification({ type: NotificationTypeEnum.ERROR, message: `Failed to reset: ${error.message}` }); }
+    };
+
     return (
         <div className="settings">
             <Notification {...notification} />
@@ -159,7 +168,9 @@ const Settings = () => {
                         </select>
                     </div>
                     <h2>Data</h2>
-                    <button className="button" type="button" onClick={exportData}>Export</button>
+                    <button className="button" type="button" onClick={() => exportData('full')}>Export full backup</button>
+                    <button className="button" type="button" onClick={() => exportData('daily')}>Export daily totals only</button>
+                    <button className="button" type="button" onClick={resetData}>Reset time data</button>
                     <button className="button" type="button" onClick={overwriteData}>Import (overwrite current time)</button>
                     <button className="button" type="button" onClick={mergeData}>Import (add to current time)</button>
                 </form>
