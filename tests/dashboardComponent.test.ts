@@ -124,6 +124,17 @@ describe('dashboard rendering and independent controls', () => {
         expect(element.querySelectorAll('.session-span')).toHaveLength(1);
         expect(element.querySelector('.timeline-labels')?.textContent).toContain('session-only.com2m');
         expect(element.querySelector('.metric strong')?.textContent).toBe('1h 30m');
+        await click('Smoothing · 120s');
+        await change('Timeline smoothing seconds', '0');
+        expect(element.querySelectorAll('.session-span')).toHaveLength(2);
+        expect(element.querySelector('.timeline-caption')?.textContent).toContain('Exact raw intervals');
+        expect(element.querySelector('.timeline-labels')?.textContent).toContain('session-only.com2m');
+        await change('Timeline smoothing seconds', '29');
+        expect(element.querySelectorAll('.session-span')).toHaveLength(2);
+        await change('Timeline smoothing seconds', '30');
+        expect(element.querySelectorAll('.session-span')).toHaveLength(1);
+        expect(element.querySelector('.metric strong')?.textContent).toBe('1h 30m');
+        await click('Reset to 120s');
         const zoom = element.querySelector('[aria-label="Timeline zoom"]') as HTMLSelectElement;
         await act(async () => { zoom.value = '4'; zoom.dispatchEvent(new Event('change', { bubbles: true })); });
         expect(element.querySelectorAll('.session-span')).toHaveLength(2);

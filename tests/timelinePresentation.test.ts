@@ -15,11 +15,41 @@ describe('timeline raw data and presentation isolation', () => {
         expect(timelineRows(data, group, 2)[0].intervals).toHaveLength(2);
         expect(full[1].intervals).toEqual([{ domain: 'b', start: base + 1200000, end: base + 1320000 }]); expect(data).toEqual(copy);
     });
-    it('keeps Other domains separate and uses hostname tie-breaking for Top4', () => {
+    it('uses the selected threshold while retaining raw totals and detailed zoom', () => {
+        const data = history([session(1, 1, 0, 60000), session(2, 1, 150000, 210000)]);
+        const copy = structuredClone(data);
+        expect(timelineRows(data, group, 1, 89)[0].intervals).toHaveLength(2);
+        expect(timelineRows(data, group, 1, 90)[0].intervals).toHaveLength(1);
+        expect(timelineRows(data, group, 2, 90)[0].intervals).toHaveLength(2);
+        expect(timelineRows(data, group, 1, 0)[0].intervals).toHaveLength(2);
+        expect(timelineRows(data, group, 4, 3600)[0].intervals).toHaveLength(2);
+        expect(timelineRows(data, group, 1, 3600)[0].milliseconds).toBe(120000);
+        expect(data).toEqual(copy);
+    });
+    it('smooths Other as one site and restores separate domains at detailed zoom', () => {
         const data = history([session(1, 6, 0, 60000), session(2, 5, 60000, 120000), session(3, 4, 120000, 180000), session(4, 3, 180000, 240000), session(5, 2, 240000, 300000), session(6, 1, 300000, 360000)]);
         const rows = timelineRows(data, group, 1);
         expect(rows.slice(0, 4).map(row => row.domain)).toEqual(['a', 'b', 'c', 'd']);
-        expect(rows[4].milliseconds).toBe(120000); expect(rows[4].intervals.map(interval => interval.domain)).toEqual(['f', 'e']);
+        expect(rows[4].milliseconds).toBe(120000);
+        expect(rows[4].intervals).toEqual([{ domain: 'Other', start: base, end: base + 120000 }]);
+        expect(timelineRows(data, group, 2)[4].intervals).toEqual(rows[4].intervals);
+        for (const zoom of [4, 8]) {
+            const raw = timelineRows(data, group, zoom)[4];
+            expect(raw.intervals).toEqual([{ domain: 'f', start: base, end: base + 60000 }, { domain: 'e', start: base + 60000, end: base + 120000 }]);
+            expect(raw.milliseconds).toBe(rows[4].milliseconds);
+        }
+        expect(timelineRows(data, group, 1, 0)[4].intervals).toHaveLength(2);
+        expect(data.sessions[0].domainId).toBe(6);
+    });
+    it('applies the chosen gap threshold across different Other sites without altering raw history', () => {
+        const data = history([session(1, 1, 300000, 600000), session(2, 2, 600000, 900000), session(3, 3, 900000, 1200000), session(4, 4, 1200000, 1500000), session(5, 5, 0, 60000), session(6, 6, 150000, 210000)]);
+        const copy = structuredClone(data);
+        expect(timelineRows(data, group, 1, 89)[4].intervals).toHaveLength(2);
+        expect(timelineRows(data, group, 1, 90)[4].intervals).toEqual([{ domain: 'Other', start: base, end: base + 210000 }]);
+        expect(timelineRows(data, group, 2, 90)[4].intervals).toHaveLength(2);
+        expect(timelineRows(data, group, 4, 3600)[4].intervals.map(interval => interval.domain)).toEqual(['e', 'f']);
+        expect(timelineRows(data, group, 1, 90)[4].milliseconds).toBe(120000);
+        expect(data).toEqual(copy);
     });
     it('selects immutable calendar identity and excludes provisional rows and unknown domains', () => {
         const other = { ...session(2, 1, 10, 20), timeZone: 'Asia/Tbilisi' };
