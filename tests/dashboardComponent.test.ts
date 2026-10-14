@@ -39,7 +39,29 @@ describe('dashboard rendering and independent controls', () => {
         expect(element.textContent).toContain('1h 30m'); expect(element.textContent).toContain('Detailed history is unavailable');
         expect(element.textContent).toContain('Legacy daily totals cannot reconstruct a timeline');
         expect(element.querySelectorAll('.session-span')).toHaveLength(0);
-        expect(element.querySelectorAll('img')).toHaveLength(1); expect(element.querySelector('img')?.getAttribute('src')).toBe('assets/icons/128px.png');
+        expect(element.querySelector('.dashboard-heading img')?.getAttribute('src')).toBe('assets/icons/128px.png');
+    });
+    it('loads favicons only in the dashboard and falls back to letters on failure', async () => {
+        await render();
+        const icon = element.querySelector<HTMLImageElement>('.site-icon[src="https://example.com/favicon.ico"]')!;
+        expect(icon).not.toBeNull();
+        expect(icon.getAttribute('referrerpolicy')).toBe('no-referrer');
+        expect(icon.parentElement?.textContent).toBe('E');
+        await act(async () => icon.dispatchEvent(new Event('load')));
+        expect(icon.parentElement?.textContent).toBe('');
+        expect(icon.style.opacity).toBe('1');
+        const parent = icon.parentElement!;
+        await act(async () => icon.dispatchEvent(new Event('error')));
+        expect(parent.querySelector('img')).toBeNull();
+        expect(parent.textContent).toBe('E');
+        await click('Refresh saved data');
+        expect(parent.querySelector('img')).toBeNull();
+    });
+    it('does not interpret imported site labels as favicon URLs or paths', async () => {
+        mock.get.mockResolvedValue({ '2026 10 7': { netTime: 60, websiteTime: { 'example.com/path': 60 } } });
+        await render();
+        expect(element.querySelectorAll('.site-icon')).toHaveLength(0);
+        expect(element.querySelector('.site-initial')?.textContent).toBe('E');
     });
     it('switches presets to exact ranges and site filtering leaves total metrics intact', async () => {
         await render(); await click('1D');

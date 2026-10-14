@@ -124,6 +124,7 @@ At a detailed zoom level, the actual raw sessions must be displayed.
 - There is no backend.
 - There is no user account.
 - Browser history and session history are never sent to a server.
+- While the dashboard is open, visible site icons load directly from each site’s HTTPS `/favicon.ico` without a referrer or a third-party favicon service. The extension does not persist icons; the browser may use its normal HTTP cache. Failed icons fall back to colored initials.
 - The existing import/export functionality must be preserved and later extended to support session history.
 
 ## Out of Scope for the Current MVP

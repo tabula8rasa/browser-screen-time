@@ -43,7 +43,8 @@ body { background: #0e1722; color: #f4f6fb; color-scheme: dark; }
 .spark i { flex: 1; background: linear-gradient(#72a9ff, #246bfb); border-radius: 3px; }
 .site-name { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .site-name > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.site-initial { flex-shrink: 0; display: inline-flex; width: 23px; height: 23px; border-radius: 7px; justify-content: center; align-items: center; color: #10202c; font-weight: 750; }
+.site-icon { position: absolute; inset: 2px; width: 19px; height: 19px; object-fit: contain; }
+.site-initial { position: relative; flex-shrink: 0; display: inline-flex; width: 23px; height: 23px; border-radius: 7px; justify-content: center; align-items: center; color: #10202c; font-weight: 750; }
 .analytics-grid { display: grid; grid-template-columns: minmax(0, 2.1fr) minmax(340px, 1fr); gap: 16px; margin-bottom: 12px; }
 .section-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
 .section-heading h2 { margin: 0; }

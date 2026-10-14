@@ -5,7 +5,16 @@ import { axisLabel, HistoryDay, timelineRows } from '../timelinePresentation';
 
 const shortDate = (date: Date) => date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 function Site({ domain }: { domain: string }) {
-    return <span className="site-name"><span className="site-initial" style={{ background: domainColor(domain) }}>{domainInitial(domain)}</span><span>{domain}</span></span>;
+    const [failedUrl, setFailedUrl] = useState('');
+    const [loadedUrl, setLoadedUrl] = useState('');
+    let iconUrl = '';
+    try {
+        const url = new URL(`https://${domain}/favicon.ico`);
+        // Saved/imported labels must be a hostname, never a path or arbitrary URL.
+        if (url.hostname === domain.toLowerCase() && !url.port && !url.username && !url.password) iconUrl = url.href;
+    } catch { /* Keep the letter for labels that aren't hostnames. */ }
+    const loaded = !!iconUrl && loadedUrl === iconUrl;
+    return <span className="site-name"><span className="site-initial" style={{ background: loaded ? 'transparent' : domainColor(domain) }}>{!loaded && domainInitial(domain)}{iconUrl && failedUrl !== iconUrl && <img className="site-icon" src={iconUrl} alt="" referrerPolicy="no-referrer" loading="lazy" style={{ opacity: loaded ? 1 : 0 }} onLoad={() => setLoadedUrl(iconUrl)} onError={() => { setFailedUrl(iconUrl); setLoadedUrl(''); }} />}</span><span>{domain}</span></span>;
 }
 function Delta({ current, previous }: { current: number; previous: number }) {
     const difference = current - previous;
