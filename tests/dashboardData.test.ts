@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calendarDate, calendarDayCount, calendarDays, changeLabel, dailySnapshot, dateInput, domainColor, formatDuration, parseDateInput, periodData, previousRange, shiftDay } from '../src/scripts/dashboardData';
+import { calendarDate, calendarDayCount, calendarDays, changeLabel, dailySnapshot, dateInput, assignDomainColors, OTHER_COLOR, formatDuration, parseDateInput, periodData, previousRange, shiftDay } from '../src/scripts/dashboardData';
 const day = (sites: Record<string, number>) => ({ netTime: Object.values(sites).reduce((a, b) => a + b, 0), websiteTime: sites });
 describe('dashboard saved aggregate semantics', () => {
     it('includes empty calendar days in average and compares exactly the preceding equal period', () => {
@@ -60,7 +60,7 @@ describe('dashboard saved aggregate semantics', () => {
         const sites = JSON.parse('{"__proto__":10,"constructor":10,"a":10}');
         const data = periodData(dailySnapshot({ '2026 10 7': day(sites) }), calendarDate(2026, 9, 7), calendarDate(2026, 9, 7));
         expect(data.sites.map(site => site.domain)).toEqual(['__proto__', 'a', 'constructor']); expect(data.total).toBe(30);
-        expect(domainColor('__proto__')).toMatch(/^#/); expect(domainColor('a')).toBe(domainColor('a'));
+        expect(assignDomainColors(['__proto__']).get('__proto__')).toMatch(/^#/);
     });
     it('never emits infinite zero-baseline comparisons or wraps long total durations', () => {
         expect(changeLabel(600, 0)).toBe('New'); expect(changeLabel(0, 0)).toBe('No change');
@@ -81,4 +81,26 @@ it('decodes reserved hostname tuples before dashboard totals and ranks', () => {
     expect(period.total).toBe(names.length * 2);
     expect(new Map(period.sites.map(site => [site.domain, site.seconds]))).toEqual(new Map(names.map(name => [name, 2])));
     expect(snapshot['2026 10 7']).not.toHaveProperty('websiteTimeReserved');
+});
+
+describe('distinct bright site colors', () => {
+    it('assigns 2000 unique saturated bright colors and reserves the Other color', () => {
+        const domains = Array.from({ length: 2000 }, (_, index) => `site-${index}.com`);
+        const colors = assignDomainColors(domains);
+        expect(new Set(colors.values()).size).toBe(domains.length);
+        expect([...colors.values()]).not.toContain(OTHER_COLOR);
+        for (const color of [...colors.values(), OTHER_COLOR]) {
+            const channels = color.slice(1).match(/../g)!.map(channel => parseInt(channel, 16));
+            expect(Math.max(...channels)).toBeGreaterThanOrEqual(200);
+            expect(Math.max(...channels) - Math.min(...channels)).toBeGreaterThanOrEqual(70);
+        }
+    });
+    it('is independent of input order and preserves assignments as sites are added', () => {
+        const first = assignDomainColors(['z.com', 'a.com', '__proto__', 'constructor', 'z.com']);
+        expect([...first]).toEqual([...assignDomainColors(['constructor', '__proto__', 'a.com', 'z.com'])]);
+        const next = assignDomainColors(['new.com', 'a.com'], first);
+        for (const [domain, color] of first) expect(next.get(domain)).toBe(color);
+        expect(new Set(next.values()).size).toBe(next.size);
+        expect(first.has('new.com')).toBe(false);
+    });
 });

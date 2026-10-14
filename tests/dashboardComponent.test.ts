@@ -4,8 +4,10 @@ import React from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Dashboard from '../src/scripts/components/dashboard';
-const mock = vi.hoisted(() => ({ get: vi.fn(), sendMessage: vi.fn() }));
-vi.mock('webextension-polyfill', () => ({ default: { storage: { local: { get: mock.get } }, runtime: { sendMessage: mock.sendMessage } } }));
+import { SITE_COLOR_PREFIX, OTHER_COLOR_KEY } from '../src/scripts/siteColors';
+import { assignDomainColors } from '../src/scripts/dashboardData';
+const mock = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn(), sendMessage: vi.fn() }));
+vi.mock('webextension-polyfill', () => ({ default: { storage: { local: { get: mock.get, set: mock.set } }, runtime: { sendMessage: mock.sendMessage } } }));
 let element: HTMLDivElement, root: Root;
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(r => { resolve = r; }); return { promise, resolve }; }
 const empty = { status: 'unavailable', sessions: [], domains: [], groups: [] };
@@ -28,7 +30,7 @@ async function click(text: string) {
 beforeEach(() => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
     vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 9, 7, 12));
-    mock.get.mockResolvedValue(snapshot); mock.sendMessage.mockResolvedValue(empty);
+    mock.set.mockResolvedValue(undefined); mock.get.mockResolvedValue(snapshot); mock.sendMessage.mockResolvedValue(empty);
     element = document.createElement('div'); document.body.appendChild(element); root = createRoot(element);
 });
 afterEach(async () => { await act(async () => root.unmount()); element.remove(); vi.useRealTimers(); vi.resetAllMocks(); });
@@ -62,6 +64,68 @@ describe('dashboard rendering and independent controls', () => {
         await render();
         expect(element.querySelectorAll('.site-icon')).toHaveLength(0);
         expect(element.querySelector('.site-initial')?.textContent).toBe('E');
+    });
+    it('uses distinct site colors consistently in bars, legends, and initials across filters', async () => {
+        const domains = Array.from({ length: 30 }, (_, index) => `site-${index}.com`);
+        mock.get.mockResolvedValue({ '2026 10 7': { netTime: 1800, websiteTime: Object.fromEntries(domains.map(domain => [domain, 60])) } });
+        await render();
+        const segments = [...element.querySelectorAll<HTMLElement>('.bar-stack > span')];
+        const byDomain = new Map(segments.map(span => [span.title.split(':')[0], span.style.background]));
+        expect(new Set(byDomain.values()).size).toBe(30);
+        for (const site of element.querySelectorAll<HTMLElement>('.site-name')) {
+            const domain = site.lastElementChild!.textContent!;
+            expect((site.firstElementChild as HTMLElement).style.background).toBe(byDomain.get(domain));
+        }
+        for (const legend of element.querySelectorAll<HTMLElement>('.distribution li')) {
+            const domain = legend.querySelector('span')!.textContent!;
+            if (domain !== 'Other') expect((legend.querySelector('i') as HTMLElement).style.background).toBe(byDomain.get(domain));
+        }
+        await click('1D');
+        for (const segment of element.querySelectorAll<HTMLElement>('.bar-stack > span')) expect(segment.style.background).toBe(byDomain.get(segment.title.split(':')[0]));
+    });
+    it('opens from a dot, previews HSB and hex across panels, and saves only its color preference', async () => {
+        await render();
+        const dot = element.querySelector<HTMLButtonElement>('[aria-label="Change color for example.com"]')!;
+        const original = element.querySelector<HTMLElement>('.bar-stack > span[title^="example.com:"]')!.style.background;
+        await act(async () => dot.click());
+        await change('Hue value', '120'); await change('Saturation value', '100'); await change('Brightness value', '100');
+        expect((element.querySelector('[aria-label="Site color hex"]') as HTMLInputElement).value).toBe('#00ff00');
+        expect(element.querySelector<HTMLElement>('.bar-stack > span[title^="example.com:"]')!.style.background).toBe('rgb(0, 255, 0)');
+        await change('Site color hex', '#badhex');
+        expect(element.querySelector<HTMLButtonElement>('[type="submit"]')!.disabled).toBe(true);
+        await change('Site color hex', '12ABEF');
+        await act(async () => element.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+        expect(mock.set).toHaveBeenCalledWith({ [SITE_COLOR_PREFIX + 'example.com']: '#12abef' });
+        expect(element.querySelector('[role="dialog"]')).toBeNull();
+        expect(document.activeElement).toBe(dot);
+        expect(element.querySelector<HTMLElement>('.bar-stack > span[title^="example.com:"]')!.style.background).not.toBe(original);
+        expect(element.querySelector('.metric strong')?.textContent).toBe('1h 30m');
+        mock.get.mockResolvedValue({ ...snapshot, [SITE_COLOR_PREFIX + 'example.com']: '#12abef' });
+        await act(async () => root.unmount()); root = createRoot(element); await render();
+        expect(element.querySelector<HTMLElement>('.bar-stack > span[title^="example.com:"]')!.style.background).toBe('rgb(18, 171, 239)');
+    });
+    it('opens sectors with mouse and keyboard, cancels previews, and handles save failures', async () => {
+        await render();
+        const sector = element.querySelector<SVGElement>('[aria-label="Change color for example.com sector"]')!;
+        await act(async () => sector.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+        await change('Site color hex', '#00ff00'); await click('Cancel');
+        expect(element.querySelector('[role="dialog"]')).toBeNull(); expect(mock.set).not.toHaveBeenCalled();
+        expect(sector.getAttribute('fill')).not.toBe('#00ff00');
+        await act(async () => sector.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+        expect(element.querySelector('[role="dialog"]')).not.toBeNull();
+        await change('Site color hex', '#00ff00'); mock.set.mockRejectedValueOnce(new Error('Write failed'));
+        await act(async () => element.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+        expect(element.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain('Unable to save');
+        await act(async () => element.querySelector('form')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+        expect(element.querySelector('[role="dialog"]')).toBeNull();
+    });
+    it('allows changing the Other sector without treating it as a site', async () => {
+        mock.get.mockResolvedValue({ '2026 10 7': { netTime: 420, websiteTime: Object.fromEntries(['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(domain => [domain, 60])) } });
+        await render();
+        await act(async () => element.querySelector<HTMLButtonElement>('[aria-label="Change color for Other"]')!.click());
+        await change('Site color hex', '#abcdef');
+        await act(async () => element.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+        expect(mock.set).toHaveBeenCalledWith({ [OTHER_COLOR_KEY]: '#abcdef' });
     });
     it('switches presets to exact ranges and site filtering leaves total metrics intact', async () => {
         await render(); await click('1D');
@@ -165,6 +229,29 @@ describe('dashboard rendering and independent controls', () => {
         expect(element.querySelector('.timeline-labels')?.textContent).toContain('travel.com');
         expect(element.querySelector('.timeline-labels')?.textContent).not.toContain('session-only.com');
         expect(element.querySelector('.metric strong')?.textContent).toBe('1h 30m');
+    });
+    it('renders Other in one color until detailed zoom restores individual site colors', async () => {
+        const base = Date.UTC(2026, 9, 7);
+        const group = { dayKey: '2026-10-07', timeZone: 'UTC', dayStart: base, dayEnd: base + 86400000, status: 'available' };
+        const domains = ['a', 'b', 'c', 'd', 'e', 'f'].map((domain, index) => ({ id: index + 1, domain }));
+        mock.sendMessage.mockResolvedValue({ status: 'available', groups: [group], domains, sessions: domains.map((domain, index) => ({ ...group, id: index + 1, domainId: domain.id, start: base + index * 300000, end: base + index * 300000 + (index < 4 ? 180000 : 60000) })) });
+        await render();
+        const otherSpans = () => [...element.querySelectorAll<HTMLElement>('.timeline-lane:last-child .session-span')];
+        expect(otherSpans()).toHaveLength(2);
+        expect(new Set(otherSpans().map(span => span.style.background)).size).toBe(1);
+        await click('Smoothing · 120s'); await change('Timeline smoothing seconds', '240');
+        expect(otherSpans()).toHaveLength(1);
+        expect(otherSpans()[0].title).toContain('Other:');
+        for (const value of ['4', '8']) {
+            const zoom = element.querySelector('[aria-label="Timeline zoom"]') as HTMLSelectElement;
+            await act(async () => { zoom.value = value; zoom.dispatchEvent(new Event('change', { bubbles: true })); });
+            expect(otherSpans()).toHaveLength(2);
+            for (const [index, domain] of ['e', 'f'].entries()) {
+                const color = document.createElement('span'); color.style.background = assignDomainColors(['a', 'b', 'c', 'd', 'e', 'f', 'example.com', 'old.com']).get(domain)!;
+                expect(otherSpans()[index].style.background).toBe(color.style.background);
+                expect(otherSpans()[index].title).toContain(`${domain}:`);
+            }
+        }
     });
     it('heatmap absent prototype-like sites are zero rather than inherited values', async () => {
         mock.get.mockResolvedValue({ ...snapshot, '2026 10 5': { netTime: 10, websiteTime: JSON.parse('{"constructor":10}') } });

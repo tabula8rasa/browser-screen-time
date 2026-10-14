@@ -94,9 +94,33 @@ export function changeLabel(current: number, previous: number): string {
     if (!previous) return current ? 'New' : 'No change';
     return `${current >= previous ? '+' : '−'}${Math.round(Math.abs(current - previous) / previous * 100)}%`;
 }
-export function domainColor(domain: string): string {
-    const palette = ['#ff5475', '#32d8aa', '#347cff', '#ffd34e', '#b36aff', '#5ec8e8', '#ff995c', '#a3b3d3'];
-    let hash = 0; for (const char of domain) hash = (hash * 31 + char.charCodeAt(0)) | 0;
-    return palette[(hash >>> 0) % palette.length];
+// Bright categorical colors, ordered to separate the first (most common) assignments.
+const SITE_PALETTE = ['#ff5475', '#32e6ac', '#559dff', '#ffd34e', '#c580ff', '#36d9ef', '#ff995c', '#eb70dc', '#a9e34b', '#7c83ff', '#ff7252', '#43eddf', '#ffb3e1', '#76caff', '#e9ee64', '#b49aff', '#5ff08c', '#ffc078', '#ff87b7', '#65e4ff', '#dc9eff', '#c8f06a', '#ffba57', '#79b4ff'];
+export const OTHER_COLOR = '#ff6de7';
+function generatedSiteColor(index: number): string | null {
+    // An odd multiplier permutes the RGB space without repeating candidates.
+    // Reject dark and desaturated candidates instead of wrapping the palette.
+    if (index >= 0x1000000) throw new Error('Site color space exhausted');
+    const rgb = Math.imul(index + 1, 0x9e3779) & 0xffffff;
+    const red = rgb >>> 16, green = (rgb >>> 8) & 255, blue = rgb & 255;
+    const max = Math.max(red, green, blue), min = Math.min(red, green, blue);
+    if (max < 220 || max - min < 100 || 0.2126 * red + 0.7152 * green + 0.0722 * blue < 125) return null;
+    return `#${rgb.toString(16).padStart(6, '0')}`;
+}
+// Keep assigned colors when the day, filters or calendar group changes. Never reuse
+// an assigned color for another domain, including when the fixed palette runs out.
+export function assignDomainColors(domains: Iterable<string>, previous: ReadonlyMap<string, string> = new Map()): Map<string, string> {
+    const colors = new Map(previous), used = new Set([OTHER_COLOR, ...colors.values()]);
+    let candidateIndex = 0;
+    for (const domain of [...new Set(domains)].sort()) {
+        if (colors.has(domain)) continue;
+        let color: string | null;
+        do {
+            color = candidateIndex < SITE_PALETTE.length ? SITE_PALETTE[candidateIndex] : generatedSiteColor(candidateIndex - SITE_PALETTE.length);
+            candidateIndex++;
+        } while (!color || used.has(color));
+        colors.set(domain, color); used.add(color);
+    }
+    return colors;
 }
 export function domainInitial(domain: string): string { return domain.replace(/^www\./, '').slice(0, 1).toUpperCase() || '•'; }
