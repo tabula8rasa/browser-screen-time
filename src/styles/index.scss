@@ -107,11 +107,10 @@ body { background: #0e1722; color: #f4f6fb; color-scheme: dark; }
 .comparison-row .delta { font-size: 11px; gap: 6px; }
 .heatmap select { max-width: 180px; padding: 3px 8px; }
 .heatmap-scroll { overflow-x: auto; }
-.heatmap-months { min-width: 490px; }
-.heatmap-month { display: grid; grid-template-columns: 34px repeat(31, minmax(0, 1fr)); gap: 3px; margin: 3px 0; align-items: center; }
-.heatmap-month > span { font-size: 10px; color: #b7caed; }
-.dashboard-shell .heatmap-month button { padding: 0; min-width: 0; height: 11px; border-radius: 3px; border: 0; }
-.heatmap-month button:disabled { opacity: 1; }
+.heatmap-calendar { display: grid; min-width: 730px; gap: 3px; grid-template-rows: 20px repeat(7, 11px); }
+.heatmap-month-label, .heatmap-weekday { font-size: 10px; color: #b7caed; align-self: center; }
+.heatmap-month-label { align-self: start; }
+.dashboard-shell .heatmap-calendar button { padding: 0; min-width: 0; height: 11px; border-radius: 3px; border: 0; }
 .heatmap-legend { display: flex; justify-content: flex-end; align-items: center; gap: 8px; font-size: 11px; margin-top: 8px; }
 .heatmap-legend i { width: 15px; height: 13px; background: #29364b; border-radius: 3px; }
 .heatmap-legend i:nth-of-type(2) { background: #244578; }

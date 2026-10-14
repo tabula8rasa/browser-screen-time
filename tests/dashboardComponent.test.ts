@@ -79,7 +79,22 @@ describe('dashboard rendering and independent controls', () => {
         expect(element.querySelector('.heatmap h2')?.textContent).toBe('Year heatmap · 99');
         expect(element.querySelector('[aria-label="0099-01-01: 1m"]')).not.toBeNull();
         expect(element.querySelector('[aria-label^="1999-"]')).toBeNull();
-        expect(element.querySelectorAll('.heatmap-month button:not(:disabled)')).toHaveLength(365);
+        expect(element.querySelectorAll('.heatmap-calendar button')).toHaveLength(365);
+    });
+    it('lays out leap-year dates in weekday rows and week columns with month labels above', async () => {
+        await render(); await change('Period end', '2024-12-31');
+        const cells = element.querySelectorAll('.heatmap-calendar button');
+        expect(cells).toHaveLength(366);
+        expect(element.querySelectorAll('.heatmap-month-label')).toHaveLength(12);
+        const january = element.querySelector('[aria-label="2024-01-01: 0s"]') as HTMLButtonElement;
+        const sunday = element.querySelector('[aria-label="2024-01-07: 0s"]') as HTMLButtonElement;
+        const leapDay = element.querySelector('[aria-label="2024-02-29: 0s"]') as HTMLButtonElement;
+        expect(january.style.gridRow).toBe('3'); expect(january.style.gridColumn).toBe('2');
+        expect(sunday.style.gridRow).toBe('2'); expect(sunday.style.gridColumn).toBe('3');
+        expect(leapDay.style.gridRow).toBe('6');
+        expect(january.style.background).toBe('rgb(41, 54, 75)');
+        await act(async () => leapDay.click());
+        expect(mock.sendMessage).toHaveBeenLastCalledWith({ type: 'history:day', dayKey: '2024-02-29' });
     });
     it('warns about corrupt persisted aggregates without rendering infinite percentages', async () => {
         mock.get.mockResolvedValue({ '2026 10 7': { netTime: 0, websiteTime: { corrupt: 10 } } });
