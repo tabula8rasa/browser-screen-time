@@ -210,7 +210,7 @@ describe('dashboard rendering and independent controls', () => {
         expect(element.querySelectorAll('.session-span')).toHaveLength(1);
         expect(element.querySelector('.timeline-labels')?.textContent).toContain('session-only.com2m');
         expect(element.querySelector('.metric strong')?.textContent).toBe('1h 30m');
-        await click('Smoothing · 120s');
+        await click('Smoothing · 800s');
         await change('Timeline smoothing seconds', '0');
         expect(element.querySelectorAll('.session-span')).toHaveLength(2);
         expect(element.querySelector('.timeline-caption')?.textContent).toContain('Exact raw intervals');
@@ -220,7 +220,8 @@ describe('dashboard rendering and independent controls', () => {
         await change('Timeline smoothing seconds', '30');
         expect(element.querySelectorAll('.session-span')).toHaveLength(1);
         expect(element.querySelector('.metric strong')?.textContent).toBe('1h 30m');
-        await click('Reset to 120s');
+        await click('Reset to 800s');
+        expect(element.querySelector('.timeline-caption')?.textContent).toContain('800 seconds');
         const zoom = element.querySelector('[aria-label="Timeline zoom"]') as HTMLSelectElement;
         await act(async () => { zoom.value = '4'; zoom.dispatchEvent(new Event('change', { bubbles: true })); });
         expect(element.querySelectorAll('.session-span')).toHaveLength(2);
@@ -237,9 +238,10 @@ describe('dashboard rendering and independent controls', () => {
         mock.sendMessage.mockResolvedValue({ status: 'available', groups: [group], domains, sessions: domains.map((domain, index) => ({ ...group, id: index + 1, domainId: domain.id, start: base + index * 300000, end: base + index * 300000 + (index < 4 ? 180000 : 60000) })) });
         await render();
         const otherSpans = () => [...element.querySelectorAll<HTMLElement>('.timeline-lane:last-child .session-span')];
+        await click('Smoothing · 800s'); await change('Timeline smoothing seconds', '120');
         expect(otherSpans()).toHaveLength(2);
         expect(new Set(otherSpans().map(span => span.style.background)).size).toBe(1);
-        await click('Smoothing · 120s'); await change('Timeline smoothing seconds', '240');
+        await change('Timeline smoothing seconds', '240');
         expect(otherSpans()).toHaveLength(1);
         expect(otherSpans()[0].title).toContain('Other:');
         for (const value of ['4', '8']) {

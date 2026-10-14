@@ -1,4 +1,5 @@
 import { rankSites } from './dashboardData';
+export const DEFAULT_SMOOTHING_SECONDS = 800;
 export interface TimelineSession { id: number; domainId: number; start: number; end: number; dayKey: string; timeZone: string; dayStart: number; dayEnd: number }
 export interface TimelineGroup { dayKey: string; timeZone: string; dayStart: number; dayEnd: number; status: 'available' | 'partial' | 'unavailable' }
 export interface HistoryDay { status: 'available' | 'partial' | 'unavailable'; sessions: TimelineSession[]; domains: Array<{ id: number; domain: string }>; groups: TimelineGroup[]; error?: string }
@@ -26,7 +27,7 @@ export function smoothIntervals(intervals: DisplayInterval[], threshold: number)
     }
     return result.sort((a, b) => a.start - b.start || a.end - b.end);
 }
-export function timelineRows(history: HistoryDay, group: TimelineGroup, zoom: number, smoothingSeconds = 120): TimelineRow[] {
+export function timelineRows(history: HistoryDay, group: TimelineGroup, zoom: number, smoothingSeconds = DEFAULT_SMOOTHING_SECONDS): TimelineRow[] {
     const domains = new Map(history.domains.map(item => [item.id, item.domain]));
     const intervals = history.sessions.filter(session => sameGroup(session, group) && session.end > session.start && domains.has(session.domainId))
         .map(session => ({ domain: domains.get(session.domainId)!, start: Math.max(session.start, group.dayStart), end: Math.min(session.end, group.dayEnd) }))

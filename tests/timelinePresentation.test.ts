@@ -8,12 +8,19 @@ describe('timeline raw data and presentation isolation', () => {
     it('ranks by raw session duration, merges brief same-site gaps only visually, and restores exact intervals at zoom', () => {
         const data = history([session(1, 1, 0, 1200000), session(2, 2, 1200000, 1320000), session(3, 1, 1320000, 3000000)]);
         const copy = structuredClone(data);
-        const full = timelineRows(data, group, 1), detailed = timelineRows(data, group, 4);
+        const full = timelineRows(data, group, 1, 120), detailed = timelineRows(data, group, 4);
         expect(full[0].domain).toBe('a'); expect(full[0].milliseconds).toBe(2880000);
         expect(full[0].intervals).toEqual([{ domain: 'a', start: base, end: base + 3000000 }]);
         expect(detailed[0].intervals).toHaveLength(2); expect(detailed[0].milliseconds).toBe(full[0].milliseconds);
-        expect(timelineRows(data, group, 2)[0].intervals).toHaveLength(2);
+        expect(timelineRows(data, group, 2, 120)[0].intervals).toHaveLength(2);
         expect(full[1].intervals).toEqual([{ domain: 'b', start: base + 1200000, end: base + 1320000 }]); expect(data).toEqual(copy);
+    });
+    it('defaults to 800 seconds at full day and reduces smoothing when zoomed', () => {
+        const data = history([session(1, 1, 0, 60000), session(2, 1, 860000, 920000)]);
+        expect(timelineRows(data, group, 1)[0].intervals).toHaveLength(1);
+        expect(timelineRows(data, group, 2)[0].intervals).toHaveLength(2);
+        expect(timelineRows(data, group, 4)[0].intervals).toHaveLength(2);
+        expect(timelineRows(data, group, 1)[0].milliseconds).toBe(120000);
     });
     it('uses the selected threshold while retaining raw totals and detailed zoom', () => {
         const data = history([session(1, 1, 0, 60000), session(2, 1, 150000, 210000)]);
