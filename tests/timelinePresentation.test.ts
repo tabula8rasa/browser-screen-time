@@ -58,6 +58,38 @@ describe('timeline raw data and presentation isolation', () => {
         expect(timelineRows(data, group, 1, 90)[4].milliseconds).toBe(120000);
         expect(data).toEqual(copy);
     });
+    it('hides only isolated sessions below five minutes after smoothing, keeping short connected clusters', () => {
+        const data = history([session(1, 1, 0, 60000), session(2, 1, 90000, 150000), session(3, 1, 3600000, 3660000), session(4, 1, 7200000, 7500000)]);
+        const copy = structuredClone(data);
+        const filtered = timelineRows(data, group, 1, 30, true)[0];
+        expect(filtered.intervals).toEqual([
+            { domain: 'a', start: base, end: base + 150000 },
+            { domain: 'a', start: base + 7200000, end: base + 7500000 }
+        ]);
+        expect(filtered.milliseconds).toBe(timelineRows(data, group, 1, 30)[0].milliseconds);
+        for (const [zoom, smoothing] of [[2, 30], [4, 800], [1, 0]]) {
+            expect(timelineRows(data, group, zoom, smoothing, true)[0].intervals).toEqual([{ domain: 'a', start: base + 7200000, end: base + 7500000 }]);
+        }
+        expect(data).toEqual(copy);
+    });
+    it('hides unrelated short Other sites at full day and 2x before grouping them for display', () => {
+        const data = history([session(1, 1, 300000, 900000), session(2, 2, 900000, 1500000), session(3, 3, 1500000, 2100000), session(4, 4, 2100000, 2700000), session(5, 5, 0, 60000), session(6, 6, 150000, 210000)]);
+        const copy = structuredClone(data);
+        for (const zoom of [1, 2, 4]) {
+            expect(timelineRows(data, group, zoom, 800, true)[4].intervals).toEqual([]);
+            expect(timelineRows(data, group, zoom, 800, true)[4].milliseconds).toBe(120000);
+        }
+        expect(timelineRows(data, group, 1, 800)[4].intervals).toHaveLength(1);
+        expect(data).toEqual(copy);
+    });
+    it('retains short Other sessions connected to the same site while hiding unrelated neighbors', () => {
+        const data = history([session(1, 1, 900000, 1500000), session(2, 2, 1500000, 2100000), session(3, 3, 2100000, 2700000), session(4, 4, 2700000, 3300000), session(5, 5, 0, 60000), session(6, 5, 150000, 210000), session(7, 6, 250000, 310000)]);
+        for (const zoom of [1, 2]) {
+            expect(timelineRows(data, group, zoom, 800, true)[4].intervals).toEqual([{ domain: 'Other', start: base, end: base + 210000 }]);
+        }
+        expect(timelineRows(data, group, 4, 800, true)[4].intervals).toEqual([]);
+        expect(timelineRows(data, group, 1, 800, true)[4].milliseconds).toBe(180000);
+    });
     it('selects immutable calendar identity and excludes provisional rows and unknown domains', () => {
         const other = { ...session(2, 1, 10, 20), timeZone: 'Asia/Tbilisi' };
         const data = history([session(1, 1, 0, 0), other, session(3, 999, 20, 30)]);

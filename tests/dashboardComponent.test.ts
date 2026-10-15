@@ -4,11 +4,13 @@ import React from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Dashboard from '../src/scripts/components/dashboard';
+import Settings from '../src/scripts/components/settings';
 import { SITE_COLOR_PREFIX, OTHER_COLOR_KEY } from '../src/scripts/siteColors';
 import { assignDomainColors } from '../src/scripts/dashboardData';
 const mock = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn(), sendMessage: vi.fn() }));
 vi.mock('webextension-polyfill', () => ({ default: { storage: { local: { get: mock.get, set: mock.set } }, runtime: { sendMessage: mock.sendMessage } } }));
 let element: HTMLDivElement, root: Root;
+let savedTimelineSettings: Record<string, string | boolean>;
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(r => { resolve = r; }); return { promise, resolve }; }
 const empty = { status: 'unavailable', sessions: [], domains: [], groups: [] };
 const snapshot = {
@@ -27,8 +29,14 @@ async function click(text: string) {
     const button = [...element.querySelectorAll('button')].find(item => item.textContent === text)!;
     await act(async () => { button.click(); });
 }
+async function updateTimelineSetting(key: string, value: string | boolean) {
+    savedTimelineSettings[key] = value;
+    mock.get.mockResolvedValue({ ...snapshot, settings: savedTimelineSettings });
+    await click('Refresh saved data');
+}
 beforeEach(() => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+    savedTimelineSettings = {};
     vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 9, 7, 12));
     mock.set.mockResolvedValue(undefined); mock.get.mockResolvedValue(snapshot); mock.sendMessage.mockResolvedValue(empty);
     element = document.createElement('div'); document.body.appendChild(element); root = createRoot(element);
@@ -42,6 +50,68 @@ describe('dashboard rendering and independent controls', () => {
         expect(element.textContent).toContain('Legacy daily totals cannot reconstruct a timeline');
         expect(element.querySelectorAll('.session-span')).toHaveLength(0);
         expect(element.querySelector('.dashboard-heading img')?.getAttribute('src')).toBe('assets/icons/128px.png');
+    });
+    it('keeps five empty lanes and the day axis visible while loading and without calendar history', async () => {
+        const pending = deferred<any>();
+        mock.sendMessage.mockReturnValueOnce(pending.promise);
+        await render();
+        expect(element.querySelectorAll('.timeline-lane')).toHaveLength(5);
+        expect(element.querySelectorAll('.time-axis span')).toHaveLength(13);
+        expect(element.querySelector('.time-axis')?.textContent).toContain('00:00');
+        expect(element.querySelector('.time-axis')?.textContent).toContain('24:00');
+        await act(async () => pending.resolve(empty));
+        expect(element.querySelectorAll('.timeline-lane')).toHaveLength(5);
+        expect(element.querySelectorAll('.timeline-labels > div')).toHaveLength(6);
+        expect(element.querySelectorAll('.session-span')).toHaveLength(0);
+        expect(element.textContent).not.toContain('Partial session history:');
+        expect(element.textContent).not.toContain('Visual smoothing up to');
+    });
+    it('toggles isolated short sessions after smoothing without changing labels or totals', async () => {
+        const base = Date.UTC(2026, 9, 7);
+        const group = { dayKey: '2026-10-07', timeZone: 'UTC', dayStart: base, dayEnd: base + 86400000, status: 'partial' };
+        mock.sendMessage.mockResolvedValue({ status: 'partial', groups: [group], domains: [{ id: 1, domain: 'a' }], sessions: [
+            { ...group, id: 1, domainId: 1, start: base, end: base + 60000 },
+            { ...group, id: 2, domainId: 1, start: base + 90000, end: base + 150000 },
+            { ...group, id: 3, domainId: 1, start: base + 3600000, end: base + 3660000 }
+        ] });
+        await render();
+        const labels = element.querySelector('.timeline-labels')?.textContent;
+        expect(element.querySelectorAll('.session-span')).toHaveLength(2);
+        await updateTimelineSetting('timelineHideShortIsolated', true);
+        expect(element.querySelectorAll('.session-span')).toHaveLength(1);
+        expect(element.querySelector('[aria-pressed]')).toBeNull();
+        expect(element.querySelector('.timeline-labels')?.textContent).toBe(labels);
+        const zoom = element.querySelector('[aria-label="Timeline zoom"]') as HTMLSelectElement;
+        await act(async () => { zoom.value = '4'; zoom.dispatchEvent(new Event('change', { bubbles: true })); });
+        expect(element.querySelectorAll('.session-span')).toHaveLength(0);
+        expect(element.querySelectorAll('.timeline-lane')).toHaveLength(5);
+        await updateTimelineSetting('timelineHideShortIsolated', false);
+        await act(async () => { zoom.value = '4'; zoom.dispatchEvent(new Event('change', { bubbles: true })); });
+        expect(element.querySelectorAll('.session-span')).toHaveLength(3);
+        expect(element.querySelector('.metric strong')?.textContent).toBe('1h 30m');
+    });
+    it('edits and persists timeline preferences in Settings and applies them on returning to the dashboard', async () => {
+        let stored: Record<string, any> = { ...snapshot };
+        mock.get.mockImplementation(async () => stored);
+        mock.set.mockImplementation(async (value: Record<string, any>) => { stored = { ...stored, ...value }; });
+        await render();
+        expect(element.textContent).not.toContain('Smoothing ·');
+        expect(element.textContent).not.toContain('Hide isolated sessions < 5m');
+        await act(async () => { root.render(React.createElement(Settings)); });
+        expect(element.querySelector('[aria-label="Timeline smoothing seconds"]')).not.toBeNull();
+        await change('Timeline smoothing seconds', '120');
+        await act(async () => element.querySelector<HTMLInputElement>('[name="timelineHideShortIsolated"]')!.click());
+        expect(stored.settings.timelineSmoothingSeconds).toBe('120');
+        expect(stored.settings.timelineHideShortIsolated).toBe(true);
+        expect(stored.settings.idleTimer).toBeUndefined();
+        await act(async () => { root.render(React.createElement(Settings, { key: 'reload' })); });
+        expect((element.querySelector('[aria-label="Timeline smoothing seconds"]') as HTMLInputElement).value).toBe('120');
+        expect(element.querySelector<HTMLInputElement>('[name="timelineHideShortIsolated"]')!.checked).toBe(true);
+        await click('Reset to 800s');
+        expect(stored.settings.timelineSmoothingSeconds).toBe('800');
+        await render();
+        expect(element.querySelector('[aria-label="Timeline smoothing seconds"]')).toBeNull();
+        expect(element.textContent).not.toContain('Hide isolated sessions < 5m');
     });
     it('loads favicons only in the dashboard and falls back to letters on failure', async () => {
         await render();
@@ -197,7 +267,7 @@ describe('dashboard rendering and independent controls', () => {
         await act(async () => { first.resolve({ ...empty, error: 'Stale day' }); });
         expect(element.textContent).not.toContain('Stale day'); expect(element.textContent).toContain('Newest day');
     });
-    it('uses real session durations and switches travel groups without moving aggregate totals', async () => {
+    it('uses real session durations without a calendar selector or changes to aggregate totals', async () => {
         const base = Date.UTC(2026, 9, 7);
         const utc = { dayKey: '2026-10-07', timeZone: 'UTC', dayStart: base, dayEnd: base + 86400000, status: 'partial' };
         const travel = { ...utc, timeZone: 'Asia/Tbilisi', dayStart: base - 14400000, dayEnd: base + 72000000 };
@@ -208,27 +278,24 @@ describe('dashboard rendering and independent controls', () => {
         ] });
         await render();
         expect(element.querySelectorAll('.session-span')).toHaveLength(1);
-        expect(element.querySelector('.timeline-labels')?.textContent).toContain('session-only.com2m');
+        expect(element.querySelector('.timeline-labels')?.textContent).toContain('session-only.com');
         expect(element.querySelector('.metric strong')?.textContent).toBe('1h 30m');
-        await click('Smoothing · 800s');
-        await change('Timeline smoothing seconds', '0');
+        await updateTimelineSetting('timelineSmoothingSeconds', '0');
         expect(element.querySelectorAll('.session-span')).toHaveLength(2);
-        expect(element.querySelector('.timeline-caption')?.textContent).toContain('Exact raw intervals');
-        expect(element.querySelector('.timeline-labels')?.textContent).toContain('session-only.com2m');
-        await change('Timeline smoothing seconds', '29');
+        expect(element.querySelector('.timeline-caption')).toBeNull();
+        expect(element.querySelector('.timeline-labels')?.textContent).toContain('session-only.com');
+        await updateTimelineSetting('timelineSmoothingSeconds', '29');
         expect(element.querySelectorAll('.session-span')).toHaveLength(2);
-        await change('Timeline smoothing seconds', '30');
+        await updateTimelineSetting('timelineSmoothingSeconds', '30');
         expect(element.querySelectorAll('.session-span')).toHaveLength(1);
         expect(element.querySelector('.metric strong')?.textContent).toBe('1h 30m');
-        await click('Reset to 800s');
-        expect(element.querySelector('.timeline-caption')?.textContent).toContain('800 seconds');
+        await updateTimelineSetting('timelineSmoothingSeconds', '800');
+        expect(element.querySelector('[aria-controls="timeline-smoothing"]')).toBeNull();
         const zoom = element.querySelector('[aria-label="Timeline zoom"]') as HTMLSelectElement;
         await act(async () => { zoom.value = '4'; zoom.dispatchEvent(new Event('change', { bubbles: true })); });
         expect(element.querySelectorAll('.session-span')).toHaveLength(2);
-        const calendar = element.querySelector('[aria-label="Timeline calendar group"]') as HTMLSelectElement;
-        await act(async () => { calendar.value = '1'; calendar.dispatchEvent(new Event('change', { bubbles: true })); });
-        expect(element.querySelector('.timeline-labels')?.textContent).toContain('travel.com');
-        expect(element.querySelector('.timeline-labels')?.textContent).not.toContain('session-only.com');
+        expect(element.querySelector('[aria-label="Timeline calendar group"]')).toBeNull();
+        expect(element.querySelector('.timeline-labels')?.textContent).toContain('session-only.com');
         expect(element.querySelector('.metric strong')?.textContent).toBe('1h 30m');
     });
     it('renders Other in one color until detailed zoom restores individual site colors', async () => {
@@ -238,10 +305,10 @@ describe('dashboard rendering and independent controls', () => {
         mock.sendMessage.mockResolvedValue({ status: 'available', groups: [group], domains, sessions: domains.map((domain, index) => ({ ...group, id: index + 1, domainId: domain.id, start: base + index * 300000, end: base + index * 300000 + (index < 4 ? 180000 : 60000) })) });
         await render();
         const otherSpans = () => [...element.querySelectorAll<HTMLElement>('.timeline-lane:last-child .session-span')];
-        await click('Smoothing · 800s'); await change('Timeline smoothing seconds', '120');
+        await updateTimelineSetting('timelineSmoothingSeconds', '120');
         expect(otherSpans()).toHaveLength(2);
         expect(new Set(otherSpans().map(span => span.style.background)).size).toBe(1);
-        await change('Timeline smoothing seconds', '240');
+        await updateTimelineSetting('timelineSmoothingSeconds', '240');
         expect(otherSpans()).toHaveLength(1);
         expect(otherSpans()[0].title).toContain('Other:');
         for (const value of ['4', '8']) {

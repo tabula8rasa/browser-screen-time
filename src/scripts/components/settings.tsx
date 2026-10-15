@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import browser from 'webextension-polyfill'
 import SettingsStorage from '../settingsStorage'
+import { DEFAULT_SMOOTHING_SECONDS, timelinePreferences } from '../timelinePresentation'
 import { SettingsData, SettingsDataType, SettingsChangeEvent } from '../types'
 import { format } from 'date-fns'
 import CounterStorage from '../counterStorage'
@@ -8,6 +9,7 @@ import Notification, { NotificationData, NotificationTypeEnum } from './notifica
 
 const Settings = () => {
     const [settings, setSettings] = useState<SettingsData | null>(null);
+    const pendingSave = useRef<Promise<void>>(Promise.resolve());
     const [notification, setNotification] = useState<NotificationData>({ type: NotificationTypeEnum.NONE, message: '' });
 
     useEffect(() => {
@@ -32,7 +34,9 @@ const Settings = () => {
             return;
         }
 
-        SettingsStorage.set(key, value);
+        pendingSave.current = pendingSave.current.then(() => SettingsStorage.set(key, value)).catch(error => {
+            setNotification({ type: NotificationTypeEnum.ERROR, message: `Failed to save settings: ${error.message}` });
+        });
 
         const currentSettings = { ...settings };
         currentSettings[key] = value;
@@ -133,6 +137,8 @@ const Settings = () => {
         catch (error) { setNotification({ type: NotificationTypeEnum.ERROR, message: `Failed to reset: ${error.message}` }); }
     };
 
+    const timeline = timelinePreferences(settings);
+
     return (
         <div className="settings">
             <Notification {...notification} />
@@ -167,6 +173,17 @@ const Settings = () => {
                             <option value="14400">4 hours</option>
                         </select>
                     </div>
+                    <h2>Day timeline</h2>
+                    <div className="smoothing-settings">
+                        <label>Full-day smoothing <input aria-label="Timeline smoothing seconds" type="number" min={0} max={3600} step={1} value={timeline.smoothingSeconds} onChange={event => {
+                            const value = event.target.valueAsNumber;
+                            if (Number.isFinite(value) && value >= 0 && value <= 3600) changeSettings('timelineSmoothingSeconds', String(value));
+                        }} /> seconds</label>
+                        <input aria-label="Adjust timeline smoothing" type="range" min={0} max={3600} step={1} value={timeline.smoothingSeconds} onChange={event => changeSettings('timelineSmoothingSeconds', event.target.value)} />
+                        <button type="button" onClick={() => changeSettings('timelineSmoothingSeconds', String(DEFAULT_SMOOTHING_SECONDS))}>Reset to {DEFAULT_SMOOTHING_SECONDS}s</button>
+                    </div>
+                    <label><input type="checkbox" name="timelineHideShortIsolated" checked={timeline.hideShortIsolated} onChange={handleChange} /> Hide isolated sessions &lt; 5m</label>
+                    <br />
                     <h2>Data</h2>
                     <button className="button" type="button" onClick={() => exportData('full')}>Export full backup</button>
                     <button className="button" type="button" onClick={() => exportData('daily')}>Export daily totals only</button>

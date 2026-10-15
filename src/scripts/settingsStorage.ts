@@ -5,7 +5,9 @@ export const defaultSettings: SettingsData = {
     idleTimer: '15', // 15 seconds
     videoCheck: true,
     notifications: false,
-    notificationTimer: '7200' // 2 hours
+    notificationTimer: '7200', // 2 hours
+    timelineSmoothingSeconds: '800',
+    timelineHideShortIsolated: false
 }
 
 export default class SettingsStorage {
@@ -17,7 +19,7 @@ export default class SettingsStorage {
 
     static async get(): Promise<SettingsData> {
         const noDefaults = await this.getNoDefaults();
-        return Object.assign(defaultSettings, noDefaults);
+        return Object.assign({}, defaultSettings, noDefaults);
     }
 
     static async getNoDefaults(): Promise<SettingsData> {
