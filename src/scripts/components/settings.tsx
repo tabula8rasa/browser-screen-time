@@ -182,7 +182,7 @@ const Settings = () => {
                         <input aria-label="Adjust timeline smoothing" type="range" min={0} max={3600} step={1} value={timeline.smoothingSeconds} onChange={event => changeSettings('timelineSmoothingSeconds', event.target.value)} />
                         <button type="button" onClick={() => changeSettings('timelineSmoothingSeconds', String(DEFAULT_SMOOTHING_SECONDS))}>Reset to {DEFAULT_SMOOTHING_SECONDS}s</button>
                     </div>
-                    <label><input type="checkbox" name="timelineHideShortIsolated" checked={timeline.hideShortIsolated} onChange={handleChange} /> Hide isolated sessions &lt; 5m</label>
+                    <label><input type="checkbox" name="timelineHideShortIsolated" checked={timeline.hideShortIsolated} onChange={handleChange} /> Hide isolated sessions &lt; 5m (full-day view only)</label>
                     <br />
                     <h2>Data</h2>
                     <button className="button" type="button" onClick={() => exportData('full')}>Export full backup</button>

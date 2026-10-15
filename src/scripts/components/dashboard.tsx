@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import browser from 'webextension-polyfill';
 import { calendarDate, calendarDays, CHART_PAGE_DAYS, changeLabel, dailySnapshot, DailySnapshot, dateInput, assignDomainColors, OTHER_COLOR, domainInitial, formatDuration, legacyKey, localToday, parseDateInput, periodData, previousRange, shiftDay } from '../dashboardData';
-import { axisLabel, DEFAULT_SMOOTHING_SECONDS, HistoryDay, timelinePreferences, timelineRows } from '../timelinePresentation';
+import { DEFAULT_SMOOTHING_SECONDS, HistoryDay, timelinePreferences, timelineRows } from '../timelinePresentation';
 
 import { localCalendar } from '../sessionClock';
+import DayTimeline from './dayTimeline';
 import SiteColorPicker from './siteColorPicker';
 import { donutSectorPath, normalizeHex, OTHER_COLOR_KEY, savedSiteColors, SITE_COLOR_PREFIX } from '../siteColors';
 
@@ -29,7 +30,7 @@ function Spark({ values }: { values: number[] }) {
     return <div className="spark" aria-hidden="true">{values.slice(-14).map((value, index) => <i key={index} style={{ height: `${Math.max(3, value / max * 100)}%` }} />)}</div>;
 }
 
-export default function Dashboard() {
+export default function Dashboard({ pageControls }: { pageControls?: React.ReactNode }) {
     const todayDate = localToday();
     const today = dateInput(todayDate);
     const [endInput, setEndInput] = useState(today);
@@ -46,11 +47,10 @@ export default function Dashboard() {
     const [day, setDay] = useState(today);
     const [history, setHistory] = useState<HistoryDay | null>(null);
     const [historyLoading, setHistoryLoading] = useState(true);
-    const [zoom, setZoom] = useState(1);
     const [smoothingSeconds, setSmoothingSeconds] = useState(DEFAULT_SMOOTHING_SECONDS);
     const [hideShortIsolated, setHideShortIsolated] = useState(false);
+    const [timelineReset, setTimelineReset] = useState(0);
     const [heatmapSite, setHeatmapSite] = useState('');
-    const scrollRef = useRef<HTMLDivElement>(null);
     const [customColors, setCustomColors] = useState(new Map<string, string>());
     const [customOtherColor, setCustomOtherColor] = useState<string | null>(null);
     const [colorEditor, setColorEditor] = useState<{ domain: string; color: string; other: boolean } | null>(null);
@@ -65,7 +65,7 @@ export default function Dashboard() {
         return () => { active = false; };
     }, [revision]);
     useEffect(() => {
-        let active = true; setHistoryLoading(true); setHistory(null); setZoom(1);
+        let active = true; setHistoryLoading(true); setHistory(null);
         browser.runtime.sendMessage({ type: 'history:day', dayKey: day }).then((value: HistoryDay) => {
             if (!active) return;
             if (!value || !['available', 'partial', 'unavailable'].includes(value.status) || !Array.isArray(value.sessions) || !Array.isArray(value.domains) || !Array.isArray(value.groups)) throw new Error('Session history is not available');
@@ -95,7 +95,7 @@ export default function Dashboard() {
         return { ...localCalendar(local.getTime()), status: 'unavailable' as const };
     }, [day]);
     const group = recordedGroup ?? emptyGroup;
-    const rows = timelineRows(history ?? { status: 'unavailable', sessions: [], domains: [], groups: [] }, group, zoom, smoothingSeconds, hideShortIsolated);
+    const rows = timelineRows(history ?? { status: 'unavailable', sessions: [], domains: [], groups: [] }, group, 1, smoothingSeconds, hideShortIsolated);
     const year = end?.getUTCFullYear() ?? localToday().getUTCFullYear();
     const yearDays = calendarDays(calendarDate(year, 0, 1), calendarDate(year, 11, 31));
     const heatValue = (date: Date) => heatmapSite ? Number(Object.getOwnPropertyDescriptor(snapshot[legacyKey(date)]?.websiteTime ?? {}, heatmapSite)?.value ?? 0) : snapshot[legacyKey(date)]?.netTime ?? 0;
@@ -144,12 +144,13 @@ export default function Dashboard() {
     }
     const periodCaption = `vs previous ${current.dayCount} ${current.dayCount === 1 ? 'day' : 'days'}`;
     return <div className="dashboard">
+        <nav className="utility-navigation" aria-label="Page controls"><button onClick={() => setRevision(value => value + 1)} disabled={loading || historyLoading}>Refresh saved data</button>{pageControls}</nav>
         <header className="dashboard-heading"><div><h1><img src="assets/icons/128px.png" alt="" />Browser Screen Time</h1><p>Overview of your browsing activity</p></div>
             <div className="period-controls"><div className="range"><label>From<input aria-label="Period start" type="date" value={startInput} onChange={event => { setStartInput(event.target.value); setPreset(null); }} /></label><span>–</span><label>To<input aria-label="Period end" type="date" value={endInput} onChange={event => changeEnd(event.target.value)} /></label></div>
                 <div className="presets">{[1, 7, 30].map(count => <button key={count} className={preset === count ? 'active' : ''} onClick={() => choosePreset(count)}>{count}D</button>)}<button className={preset === null ? 'active' : ''} onClick={() => setPreset(null)}>Custom</button></div>
             </div>
         </header>
-        <div className="dashboard-status"><button onClick={() => setRevision(value => value + 1)} disabled={loading || historyLoading}>Refresh saved data</button><span>Local data · saved statistics</span>{loading && <span role="status">Loading statistics…</span>}</div>
+        {loading && <div className="dashboard-status"><span role="status">Loading statistics…</span></div>}
         {invalidRecords > 0 && <p className="warning" role="alert">{invalidRecords} invalid saved daily {invalidRecords === 1 ? 'record was' : 'records were'} excluded from this view. Stored data remains unchanged.</p>}
         {error && <p className="warning" role="alert">{error}</p>}
         {!validRange && <p className="warning" role="alert">Choose a valid date range with the start on or before the end.</p>}
@@ -168,12 +169,12 @@ export default function Dashboard() {
                     return <button key={item.key} className="day-bar" onClick={() => setDay(dateInput(item.date))} title={`${shortDate(item.date)}: ${formatDuration(sum)}. Show timeline`}><span className="bar-total" style={{ bottom: `${sum / chartMax * 100}%` }}>{formatDuration(sum)}</span><span className="bar-stack" style={{ height: `${sum / chartMax * 100}%` }}>{entries.map(([domain, seconds]) => <span key={domain} title={`${domain}: ${formatDuration(seconds)}`} style={{ height: `${seconds / sum * 100}%`, background: colorFor(domain) }} />)}</span><span className="bar-date">{shortDate(item.date)}</span></button>;
                 })}</div></div><aside><p>Selected sites</p><strong>{formatDuration(selectedTotal)}</strong><Delta current={selectedTotal} previous={selectedPrevious} /><p>{periodCaption}</p><hr /><div className="chart-daily-average"><p>Daily average</p><strong>{formatDuration(current.dayCount ? selectedTotal / current.dayCount : 0)}</strong></div></aside></div>
             </section>
-            <section className="panel distribution"><h2>Time distribution</h2><div className="distribution-content"><div className="donut" role="group" aria-label="Website time distribution" style={{ background: sectors.length ? undefined : '#29364b' }}><svg viewBox="0 0 100 100" aria-label="Select a sector to change its color">{sectors.map(site => <path key={site.other ? 'other' : site.domain} d={site.path} fill={site.color} role="button" tabIndex={0} aria-label={`Change color for ${site.domain} sector`} onClick={event => chooseColor(site, event.currentTarget)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); chooseColor(site, event.currentTarget); } }}><title>{site.domain}: {formatDuration(site.seconds)} · Change color</title></path>)}</svg><span>{current.total ? formatDuration(current.total) : 'No data'}</span></div><ul>{distribution.map(site => <li key={site.other ? 'other' : site.domain}><button className="color-dot" aria-label={`Change color for ${site.domain}`} title={`Change color for ${site.domain}`} onClick={event => chooseColor(site, event.currentTarget)}><i style={{ background: site.color }} /></button><span>{site.domain}</span><b>{formatDuration(site.seconds)}</b><small>{Math.round(site.seconds / current.total * 100)}%</small></li>)}</ul></div>
+            <section className="panel distribution"><h2>Time distribution</h2><div className="distribution-content"><div className="donut" role="group" aria-label="Website time distribution" style={{ background: sectors.length ? undefined : '#29364b' }}><svg viewBox="0 0 100 100" aria-label="Select a sector to change its color">{sectors.map(site => <path key={site.other ? 'other' : site.domain} d={site.path} fill={site.color} role="button" tabIndex={0} aria-label={`Change color for ${site.domain} sector`} onClick={event => chooseColor(site, event.currentTarget)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); chooseColor(site, event.currentTarget); } }}><title>{site.domain}: {formatDuration(site.seconds)} · Change color</title></path>)}</svg></div><ul>{distribution.map(site => <li key={site.other ? 'other' : site.domain}><button className="color-dot" aria-label={`Change color for ${site.domain}`} title={`Change color for ${site.domain}`} onClick={event => chooseColor(site, event.currentTarget)}><i style={{ background: site.color }} /></button><span title={site.domain}>{site.domain}</span><b>{formatDuration(site.seconds)}</b><small>{Math.round(site.seconds / current.total * 100)}%</small></li>)}</ul></div>
                 {colorEditor && <SiteColorPicker key={colorEditor.other ? OTHER_COLOR_KEY : colorEditor.domain} domain={colorEditor.domain} color={colorEditor.color} onPreview={color => setColorEditor(previous => previous ? { ...previous, color } : null)} onSave={saveColor} onCancel={closeColorEditor} />}
             </section>
         </div>
-        <section className="panel timeline"><div className="section-heading"><h2>Day timeline</h2><div className="timeline-controls"><label>Day <input aria-label="Timeline day" type="date" value={day} onChange={event => { if (parseDateInput(event.target.value)) setDay(event.target.value); }} /></label><label>Zoom <select aria-label="Timeline zoom" value={zoom} onChange={event => { setZoom(Number(event.target.value)); if (scrollRef.current) scrollRef.current.scrollLeft = 0; }}><option value={1}>Full day</option><option value={2}>2×</option><option value={4}>4× · raw</option><option value={8}>8× · raw</option></select></label></div></div>
-            <div className="timeline-grid"><div className="timeline-labels"><div className="axis-spacer" />{rows.map((row, index) => <div key={index}>{row.domain ? <Site domain={row.domain} color={colorFor(row.domain)} /> : <span>{index === 4 ? 'Other' : `Top ${index + 1} · no sessions`}</span>}</div>)}</div><div className="timeline-scroll" ref={scrollRef}><div className="timeline-track" style={{ width: `${zoom * 100}%` }}><div className="time-axis">{Array.from({ length: 13 }, (_, index) => <span key={index} style={{ left: `${index / 12 * 100}%` }}>{axisLabel(group.dayStart + (group.dayEnd - group.dayStart) * index / 12, group)}</span>)}</div>{rows.map((row, index) => <div className="timeline-lane" key={index}>{row.intervals.map((interval, ordinal) => <span key={ordinal} className="session-span" style={{ left: `${(interval.start - group.dayStart) / (group.dayEnd - group.dayStart) * 100}%`, width: `${(interval.end - interval.start) / (group.dayEnd - group.dayStart) * 100}%`, background: index === 4 && zoom < 4 ? otherColor : colorFor(interval.domain) }} title={`${interval.domain}: ${axisLabel(interval.start, group)}–${axisLabel(interval.end, group)}${zoom < 4 && smoothingSeconds > 0 ? ' (presentation span)' : ''}`} />)}</div>)}</div></div></div>
+        <section className="panel timeline"><div className="section-heading"><h2>Day timeline</h2><div className="timeline-controls"><label>Day <input aria-label="Timeline day" type="date" value={day} onChange={event => { if (parseDateInput(event.target.value)) setDay(event.target.value); }} /></label><button onClick={() => setTimelineReset(value => value + 1)}>Reset zoom</button></div></div>
+            <DayTimeline key={`${day}-${group.timeZone}-${group.dayStart}-${group.dayEnd}-${timelineReset}`} history={history} group={group} smoothingSeconds={smoothingSeconds} hideShortIsolated={hideShortIsolated} colorFor={colorFor} otherColor={otherColor} renderSite={domain => <Site domain={domain} color={colorFor(domain)} />} />
             <div className="timeline-status" role="status">{historyLoading ? 'Loading session history…' : history?.error ? history.error : !recordedGroup ? 'Detailed history is unavailable for this day. Legacy daily totals cannot reconstruct a timeline.' : !rows.some(row => row.milliseconds > 0) ? (group.status === 'available' ? 'No recorded activity in this observed day.' : 'No recorded sessions in the available portion of this day.') : ''}</div>
         </section>
         <div className="bottom-grid"><section className="panel comparisons"><h2>Changes vs previous period</h2><div className="comparison-columns">{[true, false].map(increase => <div key={String(increase)}><h3 className={increase ? 'increase' : 'decrease'}>{increase ? '↗ Most increased' : '↘ Most decreased'}</h3>{changes.filter(item => increase ? item.current > item.previous : item.current < item.previous).sort((a, b) => increase ? (b.current - b.previous) - (a.current - a.previous) : (a.current - a.previous) - (b.current - b.previous)).slice(0, 5).map(item => <div className="comparison-row" key={item.domain}><Site domain={item.domain} color={colorFor(item.domain)} /><Delta current={item.current} previous={item.previous} showArrow={false} /></div>)}{!changes.some(item => increase ? item.current > item.previous : item.current < item.previous) && <p>No {increase ? 'increases' : 'decreases'} in this period.</p>}</div>)}</div></section>

@@ -34,6 +34,23 @@ async function updateTimelineSetting(key: string, value: string | boolean) {
     mock.get.mockResolvedValue({ ...snapshot, settings: savedTimelineSettings });
     await click('Refresh saved data');
 }
+async function dragTimeline(from: number, to: number, axis = false) {
+    const chart = element.querySelector<HTMLElement>('.timeline-viewport')!;
+    chart.getBoundingClientRect = () => ({ left: 0, width: 1000 } as DOMRect);
+    chart.setPointerCapture = vi.fn(); chart.releasePointerCapture = vi.fn();
+    const target = axis ? chart.querySelector('.time-axis')! : chart;
+    await act(async () => {
+        for (const [type, x] of [['pointerdown', from], ['pointermove', to], ['pointerup', to]] as const) {
+            const event = new MouseEvent(type, { bubbles: true, clientX: x * 1000, button: 0 });
+            Object.defineProperty(event, 'pointerId', { value: 1 });
+            target.dispatchEvent(event);
+        }
+    });
+}
+async function zoomTimeline(zoom: number) {
+    await act(async () => element.querySelector('.timeline-viewport')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await dragTimeline(0, 1 / zoom);
+}
 beforeEach(() => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
     savedTimelineSettings = {};
@@ -66,7 +83,7 @@ describe('dashboard rendering and independent controls', () => {
         expect(element.textContent).not.toContain('Partial session history:');
         expect(element.textContent).not.toContain('Visual smoothing up to');
     });
-    it('toggles isolated short sessions after smoothing without changing labels or totals', async () => {
+    it('hides isolated short sessions only at full day and restores the filter on reset', async () => {
         const base = Date.UTC(2026, 9, 7);
         const group = { dayKey: '2026-10-07', timeZone: 'UTC', dayStart: base, dayEnd: base + 86400000, status: 'partial' };
         mock.sendMessage.mockResolvedValue({ status: 'partial', groups: [group], domains: [{ id: 1, domain: 'a' }], sessions: [
@@ -81,12 +98,16 @@ describe('dashboard rendering and independent controls', () => {
         expect(element.querySelectorAll('.session-span')).toHaveLength(1);
         expect(element.querySelector('[aria-pressed]')).toBeNull();
         expect(element.querySelector('.timeline-labels')?.textContent).toBe(labels);
-        const zoom = element.querySelector('[aria-label="Timeline zoom"]') as HTMLSelectElement;
-        await act(async () => { zoom.value = '4'; zoom.dispatchEvent(new Event('change', { bubbles: true })); });
-        expect(element.querySelectorAll('.session-span')).toHaveLength(0);
+        await zoomTimeline(2);
+        expect(element.querySelectorAll('.session-span')).toHaveLength(2);
+        await zoomTimeline(4);
+        expect(element.querySelectorAll('.session-span')).toHaveLength(3);
         expect(element.querySelectorAll('.timeline-lane')).toHaveLength(5);
+        await click('Reset zoom');
+        expect(element.querySelector('.time-axis')!.textContent).toContain('24:00');
+        expect(element.querySelectorAll('.session-span')).toHaveLength(1);
         await updateTimelineSetting('timelineHideShortIsolated', false);
-        await act(async () => { zoom.value = '4'; zoom.dispatchEvent(new Event('change', { bubbles: true })); });
+        await zoomTimeline(4);
         expect(element.querySelectorAll('.session-span')).toHaveLength(3);
         expect(element.querySelector('.metric strong')?.textContent).toBe('1h 30m');
     });
@@ -112,6 +133,88 @@ describe('dashboard rendering and independent controls', () => {
         await render();
         expect(element.querySelector('[aria-label="Timeline smoothing seconds"]')).toBeNull();
         expect(element.textContent).not.toContain('Hide isolated sessions < 5m');
+    });
+    it('selects a mouse range, zooms out on double-click, pans the axis, and resets on day change', async () => {
+        await render();
+        expect(element.querySelector('[aria-label="Timeline zoom"]')).toBeNull();
+        expect(element.textContent).not.toContain('Drag to zoom · Double-click to zoom out');
+        const axis = () => [...element.querySelectorAll('.time-axis span')].map(item => item.textContent);
+        const full = axis();
+        // Selecting the middle half works in either drag direction.
+        await dragTimeline(0.75, 0.25);
+        expect(axis()[0]).toBe('06:00'); expect(axis().at(-1)).toBe('18:00');
+        await dragTimeline(0.25, 0.75);
+        expect(axis()[0]).toBe('09:00'); expect(axis().at(-1)).toBe('15:00');
+        await dragTimeline(0.2, 0.7, true);
+        expect(axis()[0]).toBe('12:00'); expect(axis().at(-1)).toBe('18:00');
+        await act(async () => element.querySelector('.timeline-viewport')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
+        expect(axis()[0]).toBe('09:00'); expect(axis().at(-1)).toBe('21:00');
+        await click('Reset zoom');
+        expect(axis()).toEqual(full);
+        await dragTimeline(0.25, 0.75);
+        await change('Timeline day', '2026-10-06');
+        expect(axis()).toEqual(full);
+    });
+    it('scrolls the zoomed timeline with mouse wheels and trackpads while preserving full-day page scrolling', async () => {
+        await render();
+        let chart = element.querySelector<HTMLElement>('.timeline-viewport')!;
+        const axis = () => [...element.querySelectorAll('.time-axis span')].map(item => item.textContent);
+        const pageWheel = new WheelEvent('wheel', { deltaY: 250, bubbles: true, cancelable: true });
+        await act(async () => chart.dispatchEvent(pageWheel));
+        expect(pageWheel.defaultPrevented).toBe(false);
+        await zoomTimeline(2);
+        const wheel = async (options: WheelEventInit) => {
+            const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, ...options });
+            await act(async () => chart.dispatchEvent(event));
+            return event;
+        };
+        expect((await wheel({ deltaY: 250 })).defaultPrevented).toBe(true);
+        expect(axis()[0]).toBe('03:00'); expect(axis().at(-1)).toBe('15:00');
+        await wheel({ deltaX: -250 });
+        expect(axis()[0]).toBe('00:00'); expect(axis().at(-1)).toBe('12:00');
+        await wheel({ deltaY: 2, deltaMode: 2 });
+        expect(axis()[0]).toBe('12:00'); expect(axis().at(-1)).toBe('24:00');
+        const before = axis();
+        expect((await wheel({ deltaY: -250, ctrlKey: true })).defaultPrevented).toBe(false);
+        expect(axis()).toEqual(before);
+        await wheel({ deltaY: -2000, deltaMode: 1 });
+        expect(axis()[0]).toBe('00:00'); expect(axis().at(-1)).toBe('12:00');
+        await click('Reset zoom');
+        chart = element.querySelector<HTMLElement>('.timeline-viewport')!;
+        expect((await wheel({ deltaY: 250 })).defaultPrevented).toBe(false);
+    });
+    it('clips crossing sessions to the chosen range without changing raw history or daily site ranking', async () => {
+        const base = Date.UTC(2026, 9, 7), hour = 3600000;
+        const group = { dayKey: '2026-10-07', timeZone: 'UTC', dayStart: base, dayEnd: base + 24 * hour, status: 'available' };
+        const data = { status: 'available', groups: [group], domains: [{ id: 1, domain: 'a' }, { id: 2, domain: 'b' }], sessions: [
+            { ...group, id: 1, domainId: 1, start: base + 4 * hour, end: base + 12 * hour },
+            { ...group, id: 2, domainId: 2, start: base + 8 * hour, end: base + 10 * hour }
+        ] };
+        const original = structuredClone(data);
+        mock.sendMessage.mockResolvedValue(data);
+        await render();
+        const labels = element.querySelector('.timeline-labels')!.textContent;
+        await dragTimeline(0.25, 0.75);
+        const span = element.querySelector<HTMLElement>('.timeline-lane .session-span')!;
+        expect(span.style.left).toBe('0%'); expect(span.style.width).toBe('50%');
+        expect(element.querySelector('.timeline-labels')!.textContent).toBe(labels);
+        expect(element.querySelector('.metric strong')!.textContent).toBe('1h 30m');
+        expect(data).toEqual(original);
+    });
+    it('ignores tiny selections and cancels a selection without changing the range', async () => {
+        await render();
+        const full = element.querySelector('.time-axis')!.textContent;
+        await dragTimeline(0.5, 0.502);
+        expect(element.querySelector('.time-axis')!.textContent).toBe(full);
+        const chart = element.querySelector<HTMLElement>('.timeline-viewport')!;
+        await act(async () => {
+            const event = new MouseEvent('pointerdown', { bubbles: true, clientX: 100, button: 0 });
+            Object.defineProperty(event, 'pointerId', { value: 1 }); chart.dispatchEvent(event);
+        });
+        expect(element.querySelector('.timeline-selection')).not.toBeNull();
+        await act(async () => chart.dispatchEvent(new Event('pointercancel', { bubbles: true })));
+        expect(element.querySelector('.timeline-selection')).toBeNull();
+        expect(element.querySelector('.time-axis')!.textContent).toBe(full);
     });
     it('loads favicons only in the dashboard and falls back to letters on failure', async () => {
         await render();
@@ -291,8 +394,7 @@ describe('dashboard rendering and independent controls', () => {
         expect(element.querySelector('.metric strong')?.textContent).toBe('1h 30m');
         await updateTimelineSetting('timelineSmoothingSeconds', '800');
         expect(element.querySelector('[aria-controls="timeline-smoothing"]')).toBeNull();
-        const zoom = element.querySelector('[aria-label="Timeline zoom"]') as HTMLSelectElement;
-        await act(async () => { zoom.value = '4'; zoom.dispatchEvent(new Event('change', { bubbles: true })); });
+        await zoomTimeline(4);
         expect(element.querySelectorAll('.session-span')).toHaveLength(2);
         expect(element.querySelector('[aria-label="Timeline calendar group"]')).toBeNull();
         expect(element.querySelector('.timeline-labels')?.textContent).toContain('session-only.com');
@@ -312,8 +414,7 @@ describe('dashboard rendering and independent controls', () => {
         expect(otherSpans()).toHaveLength(1);
         expect(otherSpans()[0].title).toContain('Other:');
         for (const value of ['4', '8']) {
-            const zoom = element.querySelector('[aria-label="Timeline zoom"]') as HTMLSelectElement;
-            await act(async () => { zoom.value = value; zoom.dispatchEvent(new Event('change', { bubbles: true })); });
+            await zoomTimeline(Number(value));
             expect(otherSpans()).toHaveLength(2);
             for (const [index, domain] of ['e', 'f'].entries()) {
                 const color = document.createElement('span'); color.style.background = assignDomainColors(['a', 'b', 'c', 'd', 'e', 'f', 'example.com', 'old.com']).get(domain)!;

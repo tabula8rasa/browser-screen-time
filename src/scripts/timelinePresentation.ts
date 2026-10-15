@@ -46,7 +46,7 @@ export function timelineRows(history: HistoryDay, group: TimelineGroup, zoom: nu
     for (const interval of intervals) totals.set(interval.domain, (totals.get(interval.domain) ?? 0) + interval.end - interval.start);
     const top = rankSites(totals).slice(0, 4).map(site => site.domain);
     const threshold = zoom >= 4 ? 0 : smoothingSeconds * 1000 / zoom;
-    const minimumIsolatedDuration = hideShortIsolated ? 5 * 60000 : 0;
+    const minimumIsolatedDuration = hideShortIsolated && zoom === 1 ? 5 * 60000 : 0;
     const rows = top.map(domain => ({ domain, milliseconds: totals.get(domain)!, intervals: smoothIntervals(intervals.filter(item => item.domain === domain), threshold, minimumIsolatedDuration) }));
     while (rows.length < 4) rows.push({ domain: null, milliseconds: 0, intervals: [] });
     const other = intervals.filter(item => !top.includes(item.domain));
@@ -56,8 +56,8 @@ export function timelineRows(history: HistoryDay, group: TimelineGroup, zoom: nu
     rows.push({ domain: null, milliseconds: other.reduce((sum, item) => sum + item.end - item.start, 0), intervals: otherDisplay });
     return rows;
 }
-export function axisLabel(epoch: number, group: TimelineGroup): string {
+export function axisLabel(epoch: number, group: TimelineGroup, seconds = false): string {
     if (epoch === group.dayEnd) return '24:00';
     const longDay = group.dayEnd - group.dayStart !== 86400000;
-    return new Intl.DateTimeFormat('en-GB', { timeZone: group.timeZone, hour: '2-digit', minute: '2-digit', ...(longDay ? { timeZoneName: 'shortOffset' as const } : {}) }).format(epoch);
+    return new Intl.DateTimeFormat('en-GB', { timeZone: group.timeZone, hour: '2-digit', minute: '2-digit', ...(seconds ? { second: '2-digit' as const } : {}), ...(longDay ? { timeZoneName: 'shortOffset' as const } : {}) }).format(epoch);
 }

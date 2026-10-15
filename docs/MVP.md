@@ -90,6 +90,16 @@ Within the same section, the user can select which websites are displayed.
 
 Displays the selected day on a shared 00:00–24:00 timeline.
 
+Click and drag across the timeline to zoom into a selected time range. Double-click
+to double the visible range, bounded by the selected day. Drag the time axis to pan.
+When zoomed in, mouse-wheel or horizontal trackpad scrolling also pans the timeline;
+full-day view keeps normal page scrolling.
+Keyboard controls: `+`/`-` zoom, left/right arrows pan, and Escape restores the full day.
+The Reset zoom button restores the full day. The setting to hide isolated sessions
+shorter than five minutes applies only in the full-day view; all sessions are
+eligible for display after zooming in.
+Zoom changes only the timeline viewport; daily statistics remain unchanged.
+
 Separate rows:
 
 - Top 1 site
