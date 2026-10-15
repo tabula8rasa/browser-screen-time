@@ -26,6 +26,11 @@ module.exports = {
     module: {
         rules: [
             {
+                test: /\.woff2$/i,
+                type: 'asset/resource',
+                generator: { filename: 'assets/fonts/[name].[contenthash][ext]' }
+            },
+            {
                 test: /\.tsx?$/,
                 use: 'ts-loader',
                 exclude: /node_modules/

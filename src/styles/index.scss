@@ -23,17 +23,17 @@ body { background: #0e1722; color: #f4f6fb; color-scheme: dark; }
 .presets button.active { background: #246bfb; box-shadow: 0 0 12px #246bfb66; }
 .dashboard-status { display: flex; align-items: center; gap: 12px; margin: 8px 0 12px; color: #a3b8d9; }
 .panel { background: linear-gradient(125deg, #172334, #15202e); border: 1px solid #29384d; border-radius: 12px; padding: 16px 20px; min-width: 0; }
-.panel h2 { font-size: 17px; font-weight: 650; margin-bottom: 12px; }
+.panel h2 { font-size: 17px; font-weight: 700; margin-bottom: 12px; }
 .panel p { color: #b1c6e9; }
 .metric-grid { display: grid; grid-template-columns: minmax(0, 2.1fr) minmax(340px, 1fr); gap: 16px; margin-bottom: 12px; }
 .metric-primary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; min-width: 0; }
 .metric { position: relative; min-height: 173px; overflow: hidden; }
-.metric h2 { color: #b7caed; font-size: 18px; font-weight: 400; }
+.metric h2 { color: #b7caed; font-size: 18px; font-weight: 700; }
 .metric strong { display: block; font-size: 39px; margin: 4px 0; line-height: 1.15; }
 .metric .no-site { font-size: 27px; }
-.metric .site-name { font-size: 17px; font-weight: 600; }
+.metric .site-name { font-size: 17px; font-weight: 700; }
 .metric .site-name span { font-size: inherit; }
-.delta { display: inline-flex; gap: 10px; align-items: baseline; font-weight: 600; white-space: nowrap; }
+.delta { display: inline-flex; gap: 10px; align-items: baseline; font-weight: 700; white-space: nowrap; }
 .metric > .delta { font-size: 17px; margin: 3px 0 4px; }
 .delta span { font-size: inherit; }
 .increase { color: #36e8b1; }
@@ -44,7 +44,7 @@ body { background: #0e1722; color: #f4f6fb; color-scheme: dark; }
 .site-name { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .site-name > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .site-icon { position: absolute; inset: 2px; width: 19px; height: 19px; object-fit: contain; }
-.site-initial { position: relative; flex-shrink: 0; display: inline-flex; width: 23px; height: 23px; border-radius: 7px; justify-content: center; align-items: center; color: #10202c; font-weight: 750; }
+.site-initial { position: relative; flex-shrink: 0; display: inline-flex; width: 23px; height: 23px; border-radius: 7px; justify-content: center; align-items: center; color: #10202c; font-weight: 700; }
 .analytics-grid { display: grid; grid-template-columns: minmax(0, 2.1fr) minmax(340px, 1fr); gap: 16px; margin-bottom: 12px; }
 .section-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
 .section-heading h2 { margin: 0; }
@@ -62,15 +62,16 @@ body { background: #0e1722; color: #f4f6fb; color-scheme: dark; }
 .chart-with-summary aside .chart-daily-average strong { font-size: 36px; line-height: 37px; }
 .chart-with-summary hr { border: 0; border-top: 1px solid #344762; margin: 15px 0; }
 .stack-chart { display: flex; gap: 8px; min-width: 0; height: 210px; }
-.chart-axis { display: flex; flex-direction: column; justify-content: space-between; padding-bottom: 27px; padding-top: 22px; color: #dce8fb; width: 54px; flex-shrink: 0; }
-.chart-axis span { font-size: 14px; font-weight: 500; }
-.chart-bars { display: flex; flex: 1; align-items: flex-end; gap: 10px; overflow-x: auto; padding: 23px 0 28px; background: repeating-linear-gradient(to top, transparent 0, transparent 50px, #2a3a4e 51px, transparent 52px); }
+.chart-axis { display: flex; flex-direction: column; justify-content: space-between; padding-bottom: 43px; padding-top: 22px; color: #dce8fb; width: 54px; flex-shrink: 0; }
+.chart-axis span { font-size: 14px; font-weight: 700; }
+.chart-bars { display: flex; flex: 1; align-items: flex-end; gap: 10px; overflow-x: auto; padding: 23px 0 44px; background: repeating-linear-gradient(to top, transparent 0, transparent 50px, #2a3a4e 51px, transparent 52px); }
 .dashboard-shell .day-bar { position: relative; flex: 1; min-width: 36px; height: 100%; padding: 0; border: 0; display: flex; flex-direction: column; justify-content: flex-end; background: transparent; border-radius: 0; }
 .dashboard-shell .day-bar:hover { background: #3a557b22; }
 .bar-stack { flex-shrink: 0; width: 100%; display: flex; flex-direction: column-reverse; border-radius: 6px 6px 0 0; overflow: hidden; min-height: 0; }
 .bar-stack > span { display: block; flex-shrink: 0; }
-.bar-total { position: absolute; width: 100%; font-size: 14px; font-weight: 600; color: #f4f6fb; white-space: nowrap; margin-bottom: 4px; }
-.bar-date { position: absolute; top: calc(100% + 6px); width: 100%; font-size: 13px; font-weight: 500; color: #dce8fb; white-space: nowrap; }
+.bar-total { position: absolute; width: 100%; font-size: 14px; font-weight: 700; color: #f4f6fb; white-space: nowrap; margin-bottom: 4px; }
+.bar-date { position: absolute; top: calc(100% + 6px); width: 100%; display: flex; flex-direction: column; align-items: center; font-size: 13px; line-height: 16px; font-weight: 700; color: #dce8fb; white-space: nowrap; }
+.bar-date > span { font-size: inherit; line-height: inherit; }
 .distribution-content { display: flex; align-items: center; justify-content: center; gap: 20px; }
 .donut { flex-shrink: 0; position: relative; width: 168px; height: 168px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
 .donut:before { content: ''; position: absolute; inset: 27px; background: #162230; border-radius: 50%; }
@@ -80,9 +81,9 @@ body { background: #0e1722; color: #f4f6fb; color-scheme: dark; }
 .distribution ul { list-style: none; flex: 1; min-width: 0; }
 .distribution li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto 38px; align-items: center; gap: 10px; margin: 12px 0; line-height: 1.5; }
 .distribution li i { width: 10px; height: 10px; border-radius: 50%; }
-.distribution li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 500; color: #edf3ff; }
-.distribution li b { font-size: 15px; font-weight: 600; color: #f4f6fb; white-space: nowrap; }
-.distribution li small { text-align: right; font-size: 14px; font-weight: 500; color: #d3e2fa; }
+.distribution li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 700; color: #edf3ff; }
+.distribution li b { font-size: 15px; font-weight: 700; color: #f4f6fb; white-space: nowrap; }
+.distribution li small { text-align: right; font-size: 14px; font-weight: 700; color: #d3e2fa; }
 .timeline { margin-bottom: 12px; }
 .timeline-controls { font-size: 12px; justify-content: flex-end; }
 .timeline-controls input, .timeline-controls select { font-size: 12px; padding: 3px 6px; }
