@@ -1,0 +1,9 @@
+{
+  "id": "{9c5bc222-9636-4e40-959b-6c3782d0f284}",
+  "name": "Browser Screen Time (Personal)",
+  "data_collection_permissions": {
+    "required": [
+      "browsingActivity"
+    ]
+  }
+}
